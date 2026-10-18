@@ -1,0 +1,13 @@
+{
+  "name": "invariant-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "npm run build -w packages/cli",
+    "test": "npm test -w packages/cli",
+    "dogfood": "npm run build && node packages/cli/dist/cli.js verify",
+    "test:update": "npm test -w packages/cli -- --update"
+  }
+}
