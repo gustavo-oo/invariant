@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "invariant registry",
+  "description": "Structural schema for rules/**. A capability document (rules/<capability>.yaml) and a flow document (rules/flows/<flow>.yaml) are validated against #/$defs/capabilityDocument and #/$defs/flowDocument respectively; cross-cutting spec §5 rules are enforced by the validator, not here.",
+  "$defs": {
+    "capabilityDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "rules"],
+      "properties": {
+        "capability": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rule" }
+        }
+      }
+    },
+    "flowDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flows"],
+      "properties": {
+        "flows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/flow" }
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "rationale", "criticality", "status", "checks"],
+      "properties": {
+        "id": { "type": "string" },
+        "statement": { "type": "string" },
+        "rationale": { "type": "string" },
+        "criticality": { "enum": ["critical", "normal"] },
+        "status": { "enum": ["draft", "enforced", "deprecated"] },
+        "owners": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "replaced_by": { "type": "string" },
+        "retired": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checkDecl" }
+        }
+      }
+    },
+    "checkDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "layer"],
+      "properties": {
+        "id": { "type": "string" },
+        "layer": { "enum": ["unit", "integration", "e2e"] },
+        "negative_control": { "$ref": "#/$defs/negativeControl" }
+      }
+    },
+    "negativeControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "seam", "sabotage"],
+      "properties": {
+        "kind": { "const": "seam" },
+        "seam": { "type": "string", "minLength": 1 },
+        "sabotage": {
+          "type": "string",
+          "pattern": "^\\.invariant/sabotages/[A-Za-z0-9._/-]+\\.(ts|js|mjs|py|rb|go|java|cs)$"
+        }
+      }
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "owner", "criticality", "steps", "checks"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "owner": { "type": "string" },
+        "criticality": { "enum": ["critical", "normal"] },
+        "paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/flowStep" }
+        },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/flowCheckDecl" }
+        }
+      }
+    },
+    "flowStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "rules"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "flowCheckDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "layer"],
+      "properties": {
+        "id": { "type": "string" },
+        "layer": { "enum": ["unit", "integration", "e2e"] }
+      }
+    }
+  }
+}

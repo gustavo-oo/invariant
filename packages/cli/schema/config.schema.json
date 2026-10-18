@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "invariant configuration",
+  "description": "Structural schema for .invariant/config.yaml. Every property is optional; the loader applies the documented defaults for anything absent.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "adapter": {
+      "type": "string",
+      "default": "vitest"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["advisory", "blocking"] }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "distribution": { "enum": ["manifest-only", "opencode", "both"] }
+      }
+    },
+    "doctor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "apiUrl": { "type": "string" },
+        "tokenEnv": { "type": "string" },
+        "expectedAppId": { "type": "integer" }
+      }
+    },
+    "ruleChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" }
+      }
+    },
+    "credentialBoundary": { "enum": ["declared", "none"] },
+    "protectedPaths": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
