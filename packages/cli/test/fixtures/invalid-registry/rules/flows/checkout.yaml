@@ -1,0 +1,12 @@
+flows:
+  - id: checkout
+    name: Complete a sale
+    owner: team-commerce
+    criticality: critical
+    steps:
+      - id: s1
+        name: Reserve stock
+        rules: [SALES-999]
+    checks:
+      - id: checkout.completes-a-sale
+        layer: integration

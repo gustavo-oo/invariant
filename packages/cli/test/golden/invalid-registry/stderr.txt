@@ -1,0 +1,4 @@
+rules/sales.yaml:3 registry.invalid_id rule id "SALES-4" must match ^[A-Z][A-Z0-9]*-\d{3}$
+rules/sales.yaml:3 registry.sabotage_path_invalid sabotage path ".invariant/sabotages/../../src/app.ts" must be a repo-relative path under .invariant/sabotages/
+rules/flows/checkout.yaml:2 flow.unknown_rule step "s1" references unknown rule "SALES-999"
+rules/flows/checkout.yaml:2 flow.critical_without_e2e critical flow "checkout" needs at least one e2e check

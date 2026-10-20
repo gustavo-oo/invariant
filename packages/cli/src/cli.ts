@@ -2,6 +2,7 @@
 import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { validate } from "./commands/validate.js";
 import { EXIT, type ExitCode } from "./exit.js";
 import { defaultIo, type CliIo } from "./output.js";
 
@@ -35,9 +36,11 @@ type Command = (argv: string[], io: CliIo) => Promise<ExitCode>;
 
 /**
  * The dispatch table. Each command module is registered by the task that
- * implements it; an empty table means every subcommand is unknown.
+ * implements it; a name with no entry is an unknown subcommand.
  */
-const COMMANDS: Record<string, Command> = {};
+const COMMANDS: Record<string, Command> = {
+  validate,
+};
 
 export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<ExitCode> {
   const [name, ...rest] = argv;

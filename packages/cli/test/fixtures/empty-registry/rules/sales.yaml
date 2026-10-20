@@ -1,0 +1,8 @@
+capability: sales
+rules:
+  - id: SALES-001
+    statement: "A sale MUST record its total."
+    rationale: "Totals are auditable."
+    criticality: normal
+    status: draft
+    checks: []

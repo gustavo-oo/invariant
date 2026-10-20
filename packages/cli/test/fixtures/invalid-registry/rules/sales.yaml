@@ -1,0 +1,16 @@
+capability: sales
+rules:
+  - id: SALES-4
+    statement: "A sale MUST NOT complete when stock is insufficient."
+    rationale: "Prevents overselling."
+    criticality: normal
+    status: enforced
+    owners: [team-commerce]
+    checks:
+      - id: sales.rejects-insufficient-stock
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: buildApp({ stockPolicy })
+          # Matches the schema's pattern but escapes the sabotages directory.
+          sabotage: .invariant/sabotages/../../src/app.ts
