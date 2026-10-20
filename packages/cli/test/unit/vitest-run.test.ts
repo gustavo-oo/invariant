@@ -32,7 +32,7 @@ it("classifies pass, fail and retried-pass(flaky) from the reporter payload", ()
 });
 
 it("marks a declared check absent from the report as not-run", async () => {
-  const root = await makeTmpRepo({
+  const root = await makeVitestRepo({
     "src/sale.test.ts": `import { test } from "vitest";\n// @check sales.a\n// @rule SALES-004\ntest("a", () => {});\n// @check sales.b\n// @rule SALES-004\ntest.skip("b", () => {});\n`,
   });
   const results = await runChecks(
@@ -85,6 +85,104 @@ it("pins the runtimeId separator against a real nested run", async () => {
   const [check] = (await findAdapter("vitest")!.discover(root)).checks;
   const results = await runChecks([check!], { root });
   expect(results).toEqual([{ runtimeId: check!.runtimeId, outcome: "pass" }]);
+});
+
+it("returns no results and does not spawn when there is nothing to run", async () => {
+  expect(await runChecks([], { root: "/does/not/exist" })).toEqual([]);
+});
+
+it("reads the report even when a failing test makes vitest exit non-zero", async () => {
+  const root = await makeVitestRepo({
+    "package.json": "{}",
+    "src/f.test.ts": [
+      'import { expect, test } from "vitest";',
+      "// @check sales.fails",
+      "// @rule SALES-004",
+      'test("fails", () => { expect(1).toBe(2); });',
+      "",
+    ].join("\n"),
+  });
+  const [check] = (await findAdapter("vitest")!.discover(root)).checks;
+  const [result] = await runChecks([check!], { root });
+  expect(result?.runtimeId).toBe(check!.runtimeId);
+  expect(result?.outcome).toBe("fail");
+  expect(result?.message).toContain("expected 1 to be 2");
+});
+
+it("refuses to run without the project's own vitest install", async () => {
+  const root = await makeTmpRepo({ "src/x.test.ts": "" });
+  await expect(
+    runChecks(
+      [
+        {
+          checkId: "sales.x",
+          rules: ["SALES-004"],
+          flows: [],
+          testName: "x",
+          file: "src/x.test.ts",
+          line: 1,
+          frameworkId: "vitest",
+          runtimeId: "x",
+        },
+      ],
+      { root },
+    ),
+  ).rejects.toThrow(/node_modules[/\\]vitest/);
+});
+
+it("includes the child's stderr when no readable report was produced", async () => {
+  const root = await makeVitestRepo({
+    "package.json": "{}",
+    "vitest.config.ts": 'throw new Error("config exploded");\n',
+    "src/x.test.ts": 'import { test } from "vitest";\ntest("x", () => {});\n',
+  });
+  await expect(
+    runChecks(
+      [
+        {
+          checkId: "sales.x",
+          rules: ["SALES-004"],
+          flows: [],
+          testName: "x",
+          file: "src/x.test.ts",
+          line: 2,
+          frameworkId: "vitest",
+          runtimeId: "x",
+        },
+      ],
+      { root },
+    ),
+  ).rejects.toThrow(/config exploded/);
+});
+
+it("evaluates presence per check file instead of one global runtimeId set", async () => {
+  const root = await makeVitestRepo({
+    "package.json": "{}",
+    "src/a.test.ts": [
+      'import { expect, test } from "vitest";',
+      "// @check sales.a",
+      "// @rule SALES-004",
+      'test("same", () => { expect(1).toBe(1); });',
+      "",
+    ].join("\n"),
+    // This file fails to load, so Vitest reports it with zero assertions. Its
+    // same-named test must not inherit a.test.ts's pass.
+    "src/b.test.ts": [
+      'import { test } from "vitest";',
+      'throw new Error("b cannot load");',
+      "// @check sales.b",
+      "// @rule SALES-004",
+      'test("same", () => {});',
+      "",
+    ].join("\n"),
+  });
+  const { checks, errors } = await findAdapter("vitest")!.discover(root);
+  expect(errors).toEqual([]);
+  const results = await runChecks(checks, { root });
+  expect(results.map((result) => [result.runtimeId, result.outcome])).toEqual([
+    ["same", "pass"],
+    ["same", "not-run"],
+  ]);
 });
 
 describe("reporter mapping details", () => {

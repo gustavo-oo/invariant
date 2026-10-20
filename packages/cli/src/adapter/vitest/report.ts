@@ -1,10 +1,10 @@
 import path from "node:path";
-import { readText } from "../../fsutil.js";
+import { readText, toPosix } from "../../fsutil.js";
 import type { CheckResult } from "../api.js";
 
 /**
- * Order used when two assertions claim the same `runtimeId`: a report must never
- * let a passing duplicate hide a failing one.
+ * Order used when two assertions in the same file claim the same `runtimeId`: a
+ * report must never let a passing duplicate hide a failing one.
  */
 const SEVERITY: Record<CheckResult["outcome"], number> = {
   pass: 0,
@@ -23,6 +23,13 @@ const STATUS: Record<string, CheckResult["outcome"]> = {
   disabled: "not-run",
 };
 
+/** One reporter result together with the file that produced it. */
+export interface LocatedResult {
+  /** Repo-relative POSIX path, or `undefined` when the report entry has no `name`. */
+  file: string | undefined;
+  result: CheckResult;
+}
+
 /**
  * Map a Vitest JSON reporter payload to check results.
  *
@@ -38,21 +45,40 @@ const STATUS: Record<string, CheckResult["outcome"]> = {
  * Malformed input is tolerated: a missing/non-array `testResults`, a
  * missing/non-array `assertionResults`, or an entry without a string `fullName`
  * is skipped rather than allowed to abort the whole report.
+ *
+ * This is the file-less view used by `readReports`. `runChecks` uses
+ * `collectResults` instead: presence must be decided per file, since the same
+ * `runtimeId` in another file is a different check.
  */
 export function mapVitestJson(json: unknown): CheckResult[] {
+  return collectResults(json).map(({ result }) => result);
+}
+
+/**
+ * Like `mapVitestJson`, but keeps each result's file so a caller can tell which
+ * results belong to which requested check. Duplicate assertions collapse only
+ * within the same file; the same `runtimeId` in two files stays two results.
+ *
+ * `root` normalizes the reporter's absolute `name` into the repo-relative POSIX
+ * path discovery uses. Without it the raw name is kept, which is enough for
+ * `mapVitestJson`'s file-less contract.
+ */
+export function collectResults(json: unknown, root?: string): LocatedResult[] {
   if (!isRecord(json) || !Array.isArray(json.testResults)) return [];
 
-  const results = new Map<string, CheckResult>();
+  const results = new Map<string, LocatedResult>();
   for (const file of json.testResults) {
     if (!isRecord(file) || !Array.isArray(file.assertionResults)) continue;
+    const name = fileOf(file.name, root);
     for (const assertion of file.assertionResults) {
       const result = toResult(assertion);
       if (result === undefined) continue;
-      const previous = results.get(result.runtimeId);
+      const key = JSON.stringify([name, result.runtimeId]);
+      const previous = results.get(key);
       // `Map.set` keeps the first insertion position, so report order is stable
       // even when a later, more severe duplicate replaces the earlier result.
-      if (previous === undefined || SEVERITY[result.outcome] > SEVERITY[previous.outcome]) {
-        results.set(result.runtimeId, result);
+      if (previous === undefined || SEVERITY[result.outcome] > SEVERITY[previous.result.outcome]) {
+        results.set(key, { file: name, result });
       }
     }
   }
@@ -124,6 +150,19 @@ function messageOf(value: unknown): string | undefined {
   if (!Array.isArray(value)) return undefined;
   const messages = value.filter((message): message is string => typeof message === "string");
   return messages.length === 0 ? undefined : messages.join("\n");
+}
+
+/**
+ * The repo-relative POSIX path of a report entry's `name`. Absolute paths (what
+ * Vitest emits) are made relative to `root`; relative names are normalized as
+ * they are. An entry without a string `name` is unattributable (`undefined`)
+ * and can never satisfy a check.
+ */
+function fileOf(name: unknown, root: string | undefined): string | undefined {
+  if (typeof name !== "string") return undefined;
+  if (root === undefined) return toPosix(name);
+  const relative = path.isAbsolute(name) ? path.relative(root, name) : name;
+  return toPosix(path.normalize(relative));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
