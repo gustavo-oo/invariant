@@ -11,10 +11,10 @@ import { toPosix } from "../../fsutil.js";
  * their undotted twins. The reviewer's whitelist is frozen here: an unknown
  * modifier is reported rather than guessed at.
  */
-const MODIFIERS = new Set(["skip", "only", "todo", "concurrent", "fails", "skipIf", "each"]);
+const MODIFIERS = new Set(["skip", "only", "todo", "concurrent", "fails", "skipIf", "runIf", "each"]);
 
 /** Modifiers that make a call return the actual test/suite call (curried form). */
-const CURRIED_MODIFIERS = new Set(["each", "skipIf"]);
+const CURRIED_MODIFIERS = new Set(["each", "skipIf", "runIf"]);
 
 const SUITE_BASE = "describe";
 
@@ -111,7 +111,7 @@ export function discoverTestFile(file: string, text: string): DiscoveryResult {
     file,
     text,
     sourceFile,
-    comments: scanComments(sourceFile, text),
+    comments: collectCommentRanges(sourceFile, text),
     consumed: new Set(),
     checks: [],
     errors: [],
@@ -271,22 +271,32 @@ function shapeText(shape: CallShape): string {
  * The contiguous comment run that ends immediately before `node`: every gap
  * between ranges, and between the last range and the call, must be whitespace
  * with at most one line break. A blank line therefore breaks attachment.
+ *
+ * Only the AST's own leading trivia is considered (R24/R25). There is no
+ * fallback: a comment the AST does not report as leading to this call is not
+ * this call's tag, and tag-like text inside a token (a template body, JSX text)
+ * is never trivia in the first place.
  */
 function attachedRun(node: ts.Node, context: Context): CommentRange[] {
   const start = node.getStart(context.sourceFile);
-  const astRanges = ts.getLeadingCommentRanges(context.text, node.getFullStart()) ?? [];
-  const candidates =
-    astRanges.length > 0 ? astRanges : context.comments.filter((range) => range.end <= start);
+  const ranges = (ts.getLeadingCommentRanges(context.text, node.getFullStart()) ?? []).filter(
+    (range) => range.end <= start,
+  );
 
   const run: CommentRange[] = [];
   let boundary = start;
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const range = candidates[index];
+  for (let index = ranges.length - 1; index >= 0; index -= 1) {
+    const range = ranges[index];
     if (range === undefined) continue;
     if (!isAttachedGap(context.text.slice(range.end, boundary))) break;
     run.unshift({ pos: range.pos, end: range.end });
     boundary = range.pos;
   }
+
+  // R24(a): the block must open its own line. A comment trailing a previous
+  // statement belongs to that statement, not to the call below it.
+  const first = run[0];
+  if (first === undefined || !startsOwnLine(context.text, first.pos)) return [];
   return run;
 }
 
@@ -295,10 +305,20 @@ function isAttachedGap(gap: string): boolean {
   return /^[ \t]*\r?\n?[ \t]*$/.test(gap);
 }
 
+/** Whether only whitespace precedes `position` on its line. */
+function startsOwnLine(text: string, position: number): boolean {
+  const lineStart = text.lastIndexOf("\n", position - 1) + 1;
+  return /^[ \t]*$/.test(text.slice(lineStart, position));
+}
+
 /**
  * Read the tag block out of an attached comment run. `parseTagBlock`'s
  * `consumed` still defines where the block ends; starting at the first tag line
  * lets a `/**` doc block's first line legitimately return `null`.
+ *
+ * R24(c): the block must run right up to the call. If another comment range
+ * begins after the block ends (an explanatory line between tags and test), the
+ * tags are floating, not attached.
  */
 function readAttachedTags(run: CommentRange[], context: Context): AttachedBlock | null {
   const first = run[0];
@@ -312,7 +332,20 @@ function readAttachedTags(run: CommentRange[], context: Context): AttachedBlock 
   const line = context.sourceFile.getLineAndCharacterOfPosition(first.pos).line + 1 + tagIndex;
   const block = parseTagBlock(lines, tagIndex);
   if (block === null) return { kind: "ambiguous", line };
+
+  const blockEnd = first.pos + offsetAfterLines(lines, tagIndex + block.consumed);
+  if (run.some((range) => range.pos >= blockEnd)) return { kind: "ambiguous", line };
+
   return { kind: "tags", tags: block.tags, line };
+}
+
+/** Offset just past `count` newline-terminated lines of `lines`. */
+function offsetAfterLines(lines: string[], count: number): number {
+  let offset = 0;
+  for (let index = 0; index < count; index += 1) {
+    offset += (lines[index] ?? "").length + 1;
+  }
+  return offset;
 }
 
 function markConsumed(run: CommentRange[], context: Context): void {
@@ -320,9 +353,9 @@ function markConsumed(run: CommentRange[], context: Context): void {
 }
 
 /**
- * Every tag-bearing comment that no call consumed is floating. This is found
- * from the lexical comment ranges, so tag-like text inside a string or template
- * literal can never become a tag.
+ * Every tag-bearing comment that no call consumed is floating. This is derived
+ * from node-derived comment ranges, so tag-like text inside a string, template
+ * body or JSX text can never become a tag.
  */
 function reportFloatingTags(context: Context): void {
   for (const range of context.comments) {
@@ -336,18 +369,53 @@ function reportFloatingTags(context: Context): void {
   }
 }
 
-/** All comments in the file, tokenized so strings and template literals are skipped. */
-function scanComments(sourceFile: ts.SourceFile, text: string): CommentRange[] {
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, sourceFile.languageVariant, text);
-  const ranges: CommentRange[] = [];
-  let token = scanner.scan();
-  while (token !== ts.SyntaxKind.EndOfFileToken) {
-    if (token === ts.SyntaxKind.SingleLineCommentTrivia || token === ts.SyntaxKind.MultiLineCommentTrivia) {
-      ranges.push({ pos: scanner.getTokenPos(), end: scanner.getTextPos() });
+/**
+ * Every real comment range in the file, from node trivia only (R25). Walking the
+ * AST and each node's children covers every token's leading/trailing trivia;
+ * template bodies and JSX text are token text, so tag-like lines inside them are
+ * never collected. Ranges are deduplicated by position and sorted.
+ */
+function collectCommentRanges(sourceFile: ts.SourceFile, text: string): CommentRange[] {
+  const ranges = new Map<number, CommentRange>();
+  const opaque: CommentRange[] = [];
+  const walkTrivia = (node: ts.Node): void => {
+    if (isOpaqueToken(node)) opaque.push({ pos: node.getStart(sourceFile), end: node.getEnd() });
+    for (const range of ts.getLeadingCommentRanges(text, node.getFullStart()) ?? []) {
+      ranges.set(range.pos, { pos: range.pos, end: range.end });
     }
-    token = scanner.scan();
+    // Trailing ranges are needed only for floating reporting: the AST treats a
+    // same-line comment as the previous token's trailing trivia, not as the
+    // next call's leading trivia.
+    for (const range of ts.getTrailingCommentRanges(text, node.getEnd()) ?? []) {
+      ranges.set(range.pos, { pos: range.pos, end: range.end });
+    }
+    for (const child of node.getChildren(sourceFile)) walkTrivia(child);
+  };
+  walkTrivia(sourceFile);
+  return [...ranges.values()]
+    .filter((range) => !opaque.some((span) => range.pos >= span.pos && range.pos < span.end))
+    .sort((left, right) => left.pos - right.pos);
+}
+
+/**
+ * Tokens whose text is not code. `getLeadingCommentRanges` scans raw text and
+ * can mistake `//` inside a template body or JSX text for a comment; a range
+ * starting inside one of these spans is never a comment.
+ */
+function isOpaqueToken(node: ts.Node): boolean {
+  switch (node.kind) {
+    case ts.SyntaxKind.StringLiteral:
+    case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
+    case ts.SyntaxKind.RegularExpressionLiteral:
+    case ts.SyntaxKind.TemplateHead:
+    case ts.SyntaxKind.TemplateMiddle:
+    case ts.SyntaxKind.TemplateTail:
+    case ts.SyntaxKind.JsxText:
+    case ts.SyntaxKind.JsxTextAllWhiteSpaces:
+      return true;
+    default:
+      return false;
   }
-  return ranges;
 }
 
 /** Resolve one attached block into a check, or report why it cannot be one. */

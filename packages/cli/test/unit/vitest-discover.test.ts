@@ -290,4 +290,121 @@ describe("vitest discovery", () => {
     expect(errors[0]?.message).toContain("could not resolve a static describe title");
     expect(errors[0]?.message).toContain("src/x.test.ts:1");
   });
+
+  it("ignores tag-like text after a template substitution", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "const s = `v=${1}",
+        "// @check fake.id`;",
+        'test("real", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it("does not report tag-like template text after a substitution as floating", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "const s = `v=${1}",
+        "// @check fake.id`;",
+        "const x = 1;",
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it("reports an orphan tag after a computed-title test instead of dropping it", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "test(`a ${1}`, () => {});",
+        "// @check orphan.id",
+        "",
+        "const x = 1;",
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("tag block is not attached to a test call");
+  });
+
+  it("ignores tag-like text inside JSX text", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.tsx": [
+        'import { test } from "vitest";',
+        "const view = (",
+        "  <div>",
+        "    // @check fake.id",
+        "  </div>",
+        ");",
+        'test("real", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it("does not attach a trailing same-line tag to the next test", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        'test("first", () => {}); // @check first.id',
+        'test("second", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("tag block is not attached to a test call");
+  });
+
+  it("does not attach a trailing tag on a preceding statement to the next test", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "const x = 1; // @check nope.id",
+        'test("real", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("tag block is not attached to a test call");
+  });
+
+  it("does not attach a tag block with a non-tag comment line before the call", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "// @check sales.x",
+        "// an explanatory note",
+        'test("t", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("tag block is not attached to a test call");
+  });
+
+  it("handles the curried describe.runIf form with its suite title", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        'import { describe, test } from "vitest";',
+        'describe.runIf(true)("sales", () => {',
+        "  // @check sales.run-if",
+        '  test("t", () => {});',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(errors).toEqual([]);
+    expect(checks[0]?.runtimeId).toBe("sales > t");
+  });
 });
