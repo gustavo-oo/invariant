@@ -56,7 +56,17 @@ export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<E
   }
 
   const command = name === undefined ? undefined : COMMANDS[name];
-  if (command !== undefined) return await command(rest, io);
+  if (command !== undefined) {
+    // A command failure is "the verifier could not run" (exit 2), never a
+    // product verdict (exit 1). The error text reaches stderr; it is not
+    // swallowed. This is the single guard every command inherits.
+    try {
+      return await command(rest, io);
+    } catch (cause) {
+      io.stderr(`invariant: ${errorMessage(cause)}\n`);
+      return EXIT.GATE_BROKEN;
+    }
+  }
 
   io.stderr(`unknown subcommand: ${name ?? ""}\n`);
   io.stderr(USAGE);
@@ -75,6 +85,11 @@ async function packageVersion(): Promise<string> {
     throw new Error(`invariant: no "version" field in ${url.pathname}`);
   }
   return pkg.version;
+}
+
+/** The message of a thrown value, for the command-dispatch failure line. */
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 // Entry point: this module is also the `invariant` bin, so run when invoked as a
