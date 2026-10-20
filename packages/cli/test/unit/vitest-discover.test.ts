@@ -133,4 +133,161 @@ describe("vitest discovery", () => {
     const { checks } = await vitest.discover(root);
     expect(checks.map((check) => check.checkId)).toEqual(["src.check"]);
   });
+
+  it("ignores tag-like text inside a template literal before a test", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "const body = `",
+        "// @check fake.id",
+        "`;",
+        'test("real", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it("ignores tag-like text inside a template literal before non-test code", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "const body = `",
+        "// @check fake.id",
+        "`;",
+        "const x = 1;",
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it("treats a tag block above a one-line describe as floating, even when a test shares the line", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        'import { describe, test } from "vitest";',
+        "// @check sales.whole-suite",
+        'describe("sales", () => { test("t", () => {}); });',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("tag block is not attached to a test call");
+  });
+
+  it("qualifies tagged tests inside describe.only", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        'import { describe, test } from "vitest";',
+        'describe.only("sales", () => {',
+        "  // @check sales.only",
+        '  test("t", () => {});',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(errors).toEqual([]);
+    expect(checks[0]?.runtimeId).toBe("sales > t");
+  });
+
+  it("discovers tagged it.only and test.concurrent calls", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        'import { it, test } from "vitest";',
+        "// @check sales.it",
+        'it.only("it only", () => {});',
+        "// @check sales.concurrent",
+        'test.concurrent("concurrent", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(errors).toEqual([]);
+    expect(checks.map((check) => check.checkId)).toEqual(["sales.it", "sales.concurrent"]);
+  });
+
+  it("discovers a curried test.each call", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        'import { test } from "vitest";',
+        "// @check sales.each",
+        'test.each([{ n: 1 }])("each", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(errors).toEqual([]);
+    expect(checks[0]?.runtimeId).toBe("each");
+  });
+
+  it("reports an unclassifiable dotted call shape instead of guessing", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        'import { test } from "vitest";',
+        "// @check sales.unknown",
+        'test.failsEach("unknown", () => {});',
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("unrecognized test call shape");
+    expect(errors[0]?.message).toContain("test.failsEach");
+  });
+
+  it("does not error on an untagged computed-title test", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": ['test(`a ${1}`, () => {});', ""].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it("reports a computed title when a tag block attaches", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": ["// @check sales.dynamic", 'test(`a ${1}`, () => {});', ""].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("could not resolve a static test title");
+  });
+
+  it("attaches a JSDoc tag block to the test below it", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": ["/**", " * @check sales.doc", " */", 'test("doc", () => {});', ""].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(errors).toEqual([]);
+    expect(checks[0]?.checkId).toBe("sales.doc");
+  });
+
+  it("does not attach a tag block separated from the test by a blank line", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": ["// @check sales.detached", "", 'test("detached", () => {});', ""].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("tag block is not attached to a test call");
+  });
+
+  it("names the file and line of a describe whose computed title drops its subtree", async () => {
+    const root = await makeTmpRepo({
+      "src/x.test.ts": [
+        "describe(`suite ${1}`, () => {",
+        "  // @check sales.inner",
+        '  test("inner", () => {});',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    const { checks, errors } = await vitest.discover(root);
+    expect(checks).toEqual([]);
+    expect(errors[0]?.message).toContain("could not resolve a static describe title");
+    expect(errors[0]?.message).toContain("src/x.test.ts:1");
+  });
 });

@@ -15,7 +15,10 @@ describe("createDiscoverySource", () => {
     const root = await makeTmpRepo({});
     const source = createDiscoverySource({ ...DEFAULT_CONFIG, adapter: "jest" });
     const result = await source.discover(root);
+    expect(source.id).toBe("jest");
     expect(result.checks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.file).toBe(".invariant/config.yaml");
     expect(result.errors[0]?.message).toContain("unknown adapter: jest");
   });
 });
