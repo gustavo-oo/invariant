@@ -47,6 +47,14 @@ describe("loadRegistry", () => {
     const { findings } = await loadRegistry(root);
     expect(findings.map((f) => f.code)).toEqual(["registry.flow_file_id_mismatch"]);
   });
+
+  it("propagates a directory-read error instead of treating it as no rules (review fix)", async () => {
+    // `rules` is a regular file, so readdir fails with ENOTDIR. Only ENOENT may
+    // mean "no matches"; any other traversal error must surface, never become an
+    // empty (and therefore accepably green) registry.
+    const root = await makeTmpRepo({ rules: "not a directory" });
+    await expect(loadRegistry(root)).rejects.toThrow(/ENOTDIR/);
+  });
 });
 
 describe("loadConfig", () => {

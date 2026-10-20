@@ -53,14 +53,23 @@ async function walk(dir: string, into: string[]): Promise<void> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return; // A missing (or unreadable) directory has no matches.
+  } catch (cause) {
+    // Only a path that does not exist (including a race that removes it) means
+    // "no matches". Any other traversal failure — EACCES, ENOTDIR, EMFILE — must
+    // propagate: swallowing it would let an unreadable rules/ pass as an empty,
+    // and therefore green, registry.
+    if (isNotFound(cause)) return;
+    throw cause;
   }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) await walk(full, into);
     else if (entry.isFile()) into.push(full);
   }
+}
+
+function isNotFound(cause: unknown): boolean {
+  return cause instanceof Error && (cause as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 /** The literal leading directories of a glob, up to its first magic segment. */
