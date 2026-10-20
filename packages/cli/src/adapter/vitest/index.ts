@@ -3,16 +3,13 @@ import type { DiscoveredCheck, DiscoveryError, DiscoveryResult } from "../../dis
 import { readText } from "../../fsutil.js";
 import type { Adapter, CheckResult, RunOpts } from "../api.js";
 import { discoverTestFile, listTestFiles } from "./ast.js";
-
-const RUN_NOT_IMPLEMENTED =
-  "the vitest adapter's run is not implemented in this task; it is wired by the next task (adapter run)";
-const REPORTS_NOT_IMPLEMENTED =
-  "the vitest adapter's readReports is not implemented in this task; it is wired by the next task (adapter run)";
+import { readReports as readVitestReports } from "./report.js";
+import { runChecks } from "./run.js";
 
 /**
- * Vitest discovery. `run` and `readReports` satisfy the fixed `Adapter` seam but
- * deliberately throw until the "adapter run" task implements them: returning a
- * fake result here would let a later pipeline mistake "not wired" for "green".
+ * Vitest discovery, execution and report reading. `run` delegates to
+ * `runChecks`, which never turns an absent result green; `readReports` reads
+ * reports left on disk so the pipeline can skip a re-run when one exists.
  */
 export const vitestAdapter: Adapter = {
   id: "vitest",
@@ -37,12 +34,12 @@ export const vitestAdapter: Adapter = {
     return { checks, errors };
   },
 
-  async run(_checks: DiscoveredCheck[], _opts: RunOpts): Promise<CheckResult[]> {
-    throw new Error(RUN_NOT_IMPLEMENTED);
+  async run(checks: DiscoveredCheck[], opts: RunOpts): Promise<CheckResult[]> {
+    return runChecks(checks, opts);
   },
 
-  async readReports(_paths: string[], _root: string): Promise<CheckResult[] | null> {
-    throw new Error(REPORTS_NOT_IMPLEMENTED);
+  async readReports(paths: string[], root: string): Promise<CheckResult[] | null> {
+    return readVitestReports(paths, root);
   },
 };
 
