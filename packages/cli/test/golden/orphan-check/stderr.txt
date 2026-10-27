@@ -1,0 +1,1 @@
+rules/sales.yaml:3 integrity.rule_without_discovered_check enforced rule "SALES-004" has no discovered check (missing "sales.rejects-insufficient-stock")

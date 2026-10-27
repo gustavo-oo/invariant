@@ -1,0 +1,1 @@
+src/returns.test.ts:8 integrity.duplicate_check_tag duplicate @check "sales.rejects-insufficient-stock" (already declared at src/checkout.test.ts:6)

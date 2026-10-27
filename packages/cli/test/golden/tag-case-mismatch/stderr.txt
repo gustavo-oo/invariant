@@ -1,0 +1,1 @@
+src/sales.test.ts:6 integrity.unknown_rule_id @rule "sales-004" on check "sales.rejects-insufficient-stock" does not name a registry rule

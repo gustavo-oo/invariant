@@ -1,7 +1,11 @@
 /**
- * `invariant validate` — the first real command: load the configuration and the
- * registry, run spec §5 validation, and stop the world (exit 2, no rule
- * verdicts) when the registry is invalid.
+ * `invariant validate` — load the configuration and the registry, run spec §5
+ * validation, then reconcile the registry against the tagged tests (spec §8
+ * stage 3). Any finding stops the world: exit 2, no rule verdicts.
+ *
+ * Discovery runs only after `validateRegistry` returns zero findings (review
+ * ruling R37): an invalid registry must cost no discovery work and must never
+ * be reconciled against a document that is already broken.
  *
  * `--base` and `--event` are accepted and ignored here: immutability against a
  * base ref is wired in by a later task. They are documented in the help text so
@@ -11,10 +15,12 @@ import path from "node:path";
 import { loadConfig } from "../config/load.js";
 import { EXIT, type ExitCode } from "../exit.js";
 import { stringifyJson, writeOut, type CliIo } from "../output.js";
+import { reconcile } from "../registry/integrity.js";
 import { loadRegistry } from "../registry/load.js";
 import { validateRegistry, type Finding } from "../registry/validate.js";
+import { createDiscoverySource } from "../seams/discovery-source.js";
 
-const HELP = `invariant validate - check that rules/** is a valid registry
+const HELP = `invariant validate - check rules/** and reconcile it with tagged tests
 
 Usage:
   invariant validate [--root <dir>] [--base <ref>] [--event <path>] [--json] [--out <file>]
@@ -29,9 +35,15 @@ Options:
       --out <file>    Write the output to a file instead of printing it.
   -h, --help          Print this help.
 
+Integrity:
+  A valid registry is reconciled against the tagged tests: a rule whose check no
+  test implements, a tagged check no rule or flow declares, a duplicate tag, an
+  id that does not match exactly, an unreachable flow reference or a discovery
+  error is an integrity failure, not a rule verdict.
+
 Exit codes:
-  0  The registry is valid.
-  2  The registry (or the configuration) is invalid.
+  0  The registry is valid and reconciles with the discovered tests.
+  2  The registry (or the configuration) is invalid, or integrity is broken.
 `;
 
 interface Options {
@@ -48,6 +60,12 @@ export async function validate(argv: string[], io: CliIo): Promise<ExitCode> {
   const { config, findings: configFindings } = await loadConfig(options.root);
   const { registry, findings: registryFindings } = await loadRegistry(options.root);
   const findings = [...configFindings, ...registryFindings, ...validateRegistry(registry, { cwd: options.root, config })];
+
+  // Stage 3 runs only against a §5-valid registry (R37): an invalid registry is
+  // already a gate error, and discovery must not cost anything or muddy it.
+  if (findings.length === 0) {
+    findings.push(...reconcile(registry, await createDiscoverySource(config).discover(options.root)));
+  }
 
   if (findings.length > 0) {
     emit(findingsText(findings), stringifyJson({ findings }), options, io, "stderr");
