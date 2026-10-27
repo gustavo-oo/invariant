@@ -22,6 +22,7 @@ import type {
 
 /** Build the report; the only I/O is reading the registry files it hashes. */
 export function buildReport(input: ReportInput): Report {
+  assertG1Evidence(input.guarantee);
   const files = sortedStrings(input.registry.files);
   const statements = new Map(input.registry.rules.map((rule) => [rule.id, rule.statement]));
 
@@ -66,6 +67,21 @@ function hashFiles(root: string, files: string[]): Record<string, string> {
     hashes[file] = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
   }
   return hashes;
+}
+
+/**
+ * R48: a G1 claim is only valid when the doctor actually observed protection.
+ * Refuse to publish rather than downgrade silently: a caller that supplies the
+ * class and the doctor result inconsistently has a bug, and hiding it would
+ * let the one class the product exists to guarantee be claimed without
+ * evidence.
+ */
+function assertG1Evidence(guarantee: ReportInput["guarantee"]): void {
+  const { class: cls, doctor } = guarantee;
+  if (cls !== "G1" || (doctor.ran && doctor.observation === "available")) return;
+  throw new Error(
+    `invariant: refusing to claim G1 without observed doctor evidence (doctor.ran=${doctor.ran}, observation=${doctor.observation})`,
+  );
 }
 
 function wireCheck(check: CheckVerdict): WireCheckVerdict {

@@ -118,7 +118,10 @@ function reportWith(options: ReportOptions = {}): Report {
         cls === "G1" ? [] : cls === "G2" ? [OBSERVATION_REASON] : [OBSERVATION_REASON, CREDENTIAL_REASON],
       binding: cls === "G1" || cls === "G2",
       negative_control: options.negativeControl ?? "declared-only",
-      doctor: { ran: false, class: "G3", reasons: [], findings: [], observation: "unavailable" },
+      doctor:
+        cls === "G1"
+          ? { ran: true, class: "G1", reasons: [], findings: [], observation: "available" }
+          : { ran: false, class: "G3", reasons: [], findings: [], observation: "unavailable" },
     },
     registry: {
       files: ["rules/sales.yaml"],
@@ -150,6 +153,15 @@ describe("renderComment (spec §8 stage 8)", () => {
     expect(md.split("\n").every((line) => !line.includes("\n"))).toBe(true);
   });
 
+  it("renders a hostile statement as one exactly escaped row", () => {
+    // Pipe, backtick, star, backslash and CRLF all in one business statement.
+    const statement = "A sale \\| MUST NOT complete\r\nwhen `stock` < 1 * 2 and \\` \\* \\\\";
+    const md = renderComment(reportWith({ statement }));
+    expect(md.split("\n")).toContain(
+      "| checkout | pass | s1 | SALES-004 — A sale \\\\\\| MUST NOT complete when \\`stock\\` < 1 \\* 2 and \\\\\\` \\\\\\* \\\\\\\\ (checked) | pass | sales.check-1 | check.passed |",
+    );
+  });
+
   it("collapses CRLF and every newline to a single space", () => {
     const md = renderComment(reportWith({ statement: "first\r\nsecond\nthird" }));
     expect(md).toContain("first second third");
@@ -177,10 +189,11 @@ describe("renderComment (spec §8 stage 8)", () => {
     expect(g3).toContain("**No guarantee is claimed by this run.**");
   });
 
-  it("says 'no enforced rules' instead of claiming a vacuous green (review focus 5)", () => {
+  it("says exactly 'no enforced rules' instead of claiming a vacuous green (review focus 5)", () => {
     const md = renderComment(reportWith({ enforcedRules: 0 }));
-    expect(md).toContain("No enforced rules are declared");
-    expect(md).not.toContain("all rules green");
+    const lines = md.split("\n");
+    expect(lines).toContain("No enforced rules are declared");
+    expect(lines.filter((line) => line === "No enforced rules are declared")).toHaveLength(1);
   });
 
   it("says checked until sabotage is verified, and proven only then", () => {
@@ -494,6 +507,59 @@ describe("buildReport (wire shape)", () => {
     expect(returnsBytes.equals(salesBytes)).toBe(true);
     // Rebuilding over the same tree is byte-identical.
     expect(buildReport(input).registry.hashes).toEqual(report.registry.hashes);
+  });
+
+  it("refuses a G1 report without observed doctor evidence (R48)", async () => {
+    const input = await wireInput();
+    const g1 = {
+      ...input,
+      guarantee: { ...input.guarantee, class: "G1" as const, binding: true, classReasons: [] },
+    };
+
+    const notRun = {
+      ...g1,
+      guarantee: {
+        ...g1.guarantee,
+        doctor: { ran: false, class: "G1" as const, reasons: [], findings: [], observation: "available" as const },
+      },
+    };
+    expect(() => buildReport(notRun)).toThrow(/doctor\.ran=false/);
+    expect(() => buildReport(notRun)).toThrow(/observation=available/);
+
+    const notObserved = {
+      ...g1,
+      guarantee: {
+        ...g1.guarantee,
+        doctor: { ran: true, class: "G1" as const, reasons: [], findings: [], observation: "unavailable" as const },
+      },
+    };
+    expect(() => buildReport(notObserved)).toThrow(/doctor\.ran=true/);
+    expect(() => buildReport(notObserved)).toThrow(/observation=unavailable/);
+  });
+
+  it("builds a consistent G1 report and keeps the comment free of the warning", async () => {
+    const input = await wireInput();
+    const report = buildReport({
+      ...input,
+      guarantee: {
+        ...input.guarantee,
+        class: "G1",
+        binding: true,
+        classReasons: [],
+        doctor: { ran: true, class: "G1", reasons: [], findings: [], observation: "available" },
+      },
+    });
+
+    expect(report.guarantee.class).toBe("G1");
+    expect(report.guarantee.binding).toBe(true);
+    expect(report.guarantee.doctor).toEqual({
+      ran: true,
+      class: "G1",
+      reasons: [],
+      findings: [],
+      observation: "available",
+    });
+    expect(renderComment(report)).not.toContain("**No guarantee is claimed by this run.**");
   });
 });
 

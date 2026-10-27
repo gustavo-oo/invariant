@@ -20,7 +20,7 @@ const MECHANISM: Record<GuaranteeClass, string> = {
 
 const DECLARED_ONLY_BANNER = "Seam sabotage is NOT executed in this delivery (Phase 2). No rule is proven able to fail.";
 const CLASS_WARNING = "**No guarantee is claimed by this run.**";
-const NO_ENFORCED_RULES = "No enforced rules are declared by this registry.";
+const NO_ENFORCED_RULES = "No enforced rules are declared";
 
 /** Render the PR comment. Pure: the report is the only input. */
 export function renderComment(report: Report): string {
@@ -166,12 +166,14 @@ function renderOutsideList(rules: WireRuleVerdict[]): string {
 }
 
 /**
- * Collapse every newline (CRLF included) to one space, then escape the three
- * Markdown-hostile characters. Escaping happens on plain text, before any
- * table cell is generated.
+ * Escape `\` first — otherwise existing sequences such as `\|`, `` \` `` or
+ * `\*` would still split a cell once GFM unescapes `\\` — then collapse every
+ * newline (CRLF included) to one space and escape the other hostile
+ * characters. Escaping happens on plain text, before any table cell is built.
  */
 function escapeText(text: string): string {
   return text
+    .replace(/\\/g, "\\\\")
     .replace(/\r\n|\r|\n/g, " ")
     .replace(/\|/g, "\\|")
     .replace(/`/g, "\\`")

@@ -34,6 +34,10 @@ export interface ClassResult {
  *   relied upon (PEND-2, an explicit human declaration).
  * - `G3` is everything else: visible on the PR, acting on it is a human's job.
  *
+ * Callers must derive `observationAvailable` from the doctor result itself; a
+ * class the observation does not support is a bug, and `buildReport` refuses a
+ * G1 report without observed doctor evidence.
+ *
  * @param credentialBoundary `true` when the config declares a boundary
  * (`config.credentialBoundary !== "none"`), not when it is merely possible.
  */
