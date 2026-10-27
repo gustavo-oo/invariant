@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { defineConfig, type Plugin } from "vitest/config";
+import { configDefaults, defineConfig, type Plugin } from "vitest/config";
 
 const tsFromJs: Plugin = {
   name: "invariant-ts-from-js",
@@ -15,7 +15,11 @@ const tsFromJs: Plugin = {
 
 export default defineConfig({
   plugins: [tsFromJs],
-  // Fixtures are hostile corpus inputs (they contain test files on purpose),
-  // never part of this project's own suite.
-  test: { include: ["test/**/*.test.ts"], exclude: ["test/fixtures/**"], testTimeout: 30_000 },
+  // Fixtures are corpus data that merely looks like test files; keep the
+  // default excludes (node_modules, dist, ...) and add the fixture tree.
+  test: {
+    include: ["test/**/*.test.ts"],
+    exclude: [...configDefaults.exclude, "test/fixtures/**"],
+    testTimeout: 30_000,
+  },
 });

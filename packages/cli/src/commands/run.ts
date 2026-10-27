@@ -41,7 +41,7 @@ Options:
       --event <path>    Accepted and ignored by run; event handling is part of
                         the verify pipeline.
       --json            Emit {"checks": CheckResult[]} instead of one line per check.
-      --out <file>      Write the output to a file instead of printing it.
+      --out <file>      Write the JSON artifact {"checks": CheckResult[]} to a file.
   -h, --help            Print this help.
 
 Each check is printed as <checkId> <runtimeId> <outcome>.
@@ -234,9 +234,11 @@ function discoveryErrorsText(errors: DiscoveryError[]): string {
 }
 
 /**
- * Write the selected representation: one line per check by default, JSON under
- * `--json`. `--out` redirects it to a file; without it the text is printed.
+ * Write the selected representation: a machine artifact (`{ checks }`) whenever
+ * one is requested with `--json` or `--out`, and one line per check only for the
+ * plain human invocation. `--out` writes the artifact to a file through the same
+ * `writeOut` boundary; without it the text is printed.
  */
 function emit(human: string, json: string, options: Options, io: CliIo): void {
-  writeOut(options.out, options.json ? json : human, io);
+  writeOut(options.out, options.json || options.out !== null ? json : human, io);
 }

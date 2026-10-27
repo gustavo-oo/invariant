@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { expectGolden } from "../helpers/goldens.js";
 import { runFixture } from "../helpers/run-cli.js";
@@ -53,5 +55,14 @@ describe("invariant run", () => {
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toBe("sales.never-runs never runs pass\n");
     expect(run.stderr).toBe("");
+  });
+
+  it("writes the JSON artifact on --out, even without --json", async () => {
+    const run = await runFixture("not-run-check", { args: ["run", "--out", "run-out.json"] });
+    expect(run.exitCode).toBe(1);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toBe("");
+    const artifact = JSON.parse(await readFile(path.join(run.root, "run-out.json"), "utf8")) as unknown;
+    expect(artifact).toEqual({ checks: [{ runtimeId: "never runs", outcome: "not-run" }] });
   });
 });
