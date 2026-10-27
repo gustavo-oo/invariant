@@ -15,5 +15,7 @@ const tsFromJs: Plugin = {
 
 export default defineConfig({
   plugins: [tsFromJs],
-  test: { include: ["test/**/*.test.ts"], testTimeout: 30_000 },
+  // Fixtures are hostile corpus inputs (they contain test files on purpose),
+  // never part of this project's own suite.
+  test: { include: ["test/**/*.test.ts"], exclude: ["test/fixtures/**"], testTimeout: 30_000 },
 });

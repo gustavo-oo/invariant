@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -31,12 +31,19 @@ const MAX_BUFFER = 10 * 1024 * 1024;
 export async function runChecks(checks: DiscoveredCheck[], opts: RunOpts): Promise<CheckResult[]> {
   if (checks.length === 0) return [];
 
+  // Canonicalize before anything path-sensitive: Vitest reports absolute real
+  // paths, so a symlinked or otherwise non-canonical root makes every reported
+  // file look foreign and silently degrades every check to `not-run`. Carried
+  // fix from Task 6's review.
+  const root = await realpath(opts.root);
+  const runOpts: RunOpts = { ...opts, root };
+
   const files = [...new Set(checks.map((check) => check.file))].sort();
   const directory = await mkdtemp(path.join(tmpdir(), "invariant-vitest-"));
   const outputFile = path.join(directory, "report.json");
 
   try {
-    const stderr = await runVitest(files, opts, outputFile);
+    const stderr = await runVitest(files, runOpts, outputFile);
 
     let json: unknown;
     try {
@@ -53,7 +60,7 @@ export async function runChecks(checks: DiscoveredCheck[], opts: RunOpts): Promi
       });
     }
 
-    const located = collectResults(json, opts.root);
+    const located = collectResults(json, root);
     const results: CheckResult[] = [];
     for (const check of checks) {
       // Presence is per check file: a same-named test in another file is a

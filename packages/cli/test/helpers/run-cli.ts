@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExitCode } from "../../src/exit.js";
+import { linkNodeModules } from "./node-modules.js";
 
 /** Absolute path of the built CLI. `npm test` builds before running the suite. */
 export const CLI_PATH = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
@@ -71,6 +72,9 @@ export async function runFixture(name: string, opts: { args?: string[] } = {}): 
   const copy = path.join(holder, name);
   await cp(path.join(FIXTURES, name), copy, { recursive: true });
   const root = await realpath(copy);
+  // A fixture is a real repo: give it the workspace install so its tests can
+  // execute offline, exactly like `makeVitestRepo` does.
+  await linkNodeModules(root);
 
   const run = await spawnCli(opts.args ?? ["validate"], { cwd: root });
   return {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { symlink } from "node:fs/promises";
 import { findAdapter } from "../../src/adapter/registry.js";
 import { mapVitestJson, readReports } from "../../src/adapter/vitest/report.js";
 import { runChecks } from "../../src/adapter/vitest/run.js";
@@ -84,6 +85,26 @@ it("pins the runtimeId separator against a real nested run", async () => {
   });
   const [check] = (await findAdapter("vitest")!.discover(root)).checks;
   const results = await runChecks([check!], { root });
+  expect(results).toEqual([{ runtimeId: check!.runtimeId, outcome: "pass" }]);
+});
+
+it("canonicalizes a symlinked root instead of degrading every check to not-run", async () => {
+  const root = await makeVitestRepo({
+    "src/s.test.ts": [
+      'import { expect, test } from "vitest";',
+      "// @check sales.s",
+      "// @rule SALES-004",
+      'test("s", () => { expect(1).toBe(1); });',
+      "",
+    ].join("\n"),
+  });
+  // Vitest reports absolute real paths, so a root that is a symlink makes every
+  // reported file look foreign and silently turns every check into not-run.
+  const alias = `${root}-alias`;
+  await symlink(root, alias, "dir");
+  const [check] = (await findAdapter("vitest")!.discover(alias)).checks;
+
+  const results = await runChecks([check!], { root: alias });
   expect(results).toEqual([{ runtimeId: check!.runtimeId, outcome: "pass" }]);
 });
 

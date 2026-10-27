@@ -2,6 +2,7 @@
 import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { run } from "./commands/run.js";
 import { validate } from "./commands/validate.js";
 import { EXIT, type ExitCode } from "./exit.js";
 import { defaultIo, type CliIo } from "./output.js";
@@ -40,6 +41,7 @@ type Command = (argv: string[], io: CliIo) => Promise<ExitCode>;
  */
 const COMMANDS: Record<string, Command> = {
   validate,
+  run,
 };
 
 export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<ExitCode> {

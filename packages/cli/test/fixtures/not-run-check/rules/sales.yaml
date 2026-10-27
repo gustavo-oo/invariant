@@ -1,0 +1,15 @@
+capability: sales
+rules:
+  - id: SALES-004
+    statement: "A sale MUST NOT complete when stock is insufficient."
+    rationale: "Prevents overselling."
+    criticality: critical
+    status: enforced
+    owners: [team-commerce]
+    checks:
+      - id: sales.never-runs
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: buildApp({ stockPolicy })
+          sabotage: .invariant/sabotages/sales-004.ts

@@ -1,0 +1,15 @@
+{
+  "testResults": [
+    {
+      "name": "src/sales.test.ts",
+      "assertionResults": [
+        {
+          "fullName": "never runs",
+          "ancestorTitles": [],
+          "title": "never runs",
+          "status": "passed"
+        }
+      ]
+    }
+  ]
+}
