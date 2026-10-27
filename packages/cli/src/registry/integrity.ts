@@ -9,9 +9,11 @@
  *
  * A pure function over a loaded registry and a `DiscoveryResult`: no I/O, no
  * execution, and it never throws on a malformed document — every property is
- * re-checked at runtime even where the model declares it required. Matching is
- * exact and case-sensitive throughout: a case-insensitive match would turn a
- * typo like `@rule sales-004` into a green gate.
+ * re-checked at runtime even where the model declares it required, null entries
+ * are skipped rather than dereferenced, and a missing registry or discovery is
+ * treated as empty. Matching is exact and case-sensitive throughout: a
+ * case-insensitive match would turn a typo like `@rule sales-004` into a green
+ * gate.
  */
 import type { DiscoveredCheck, DiscoveryError, DiscoveryResult, FlowRef } from "../discovery/types.js";
 import type { CheckDecl, Finding, Flow, FlowStep, Registry, Rule } from "./model.js";
@@ -58,9 +60,9 @@ interface Identifiers {
  */
 export function reconcile(registry: Registry, discovery: DiscoveryResult): Finding[] {
   const findings: Finding[] = [];
-  const rules = listOf<Rule>(registry.rules);
-  const flows = listOf<Flow>(registry.flows);
-  const discovered = listOf<DiscoveredCheck>(discovery.checks);
+  const rules = listOf<Rule>(registry?.rules);
+  const flows = listOf<Flow>(registry?.flows);
+  const discovered = listOf<DiscoveredCheck>(discovery?.checks);
 
   const ruleById = new Map<string, Rule>();
   const flowById = new Map<string, Flow>();
@@ -90,16 +92,30 @@ export function reconcile(registry: Registry, discovery: DiscoveryResult): Findi
     }
   }
 
-  const discoveredCheckIds = new Set<string>();
+  /**
+   * R39: a discovered check satisfies rule `R` only when the check's own
+   * `@rule` tags include `R`. A global set of discovered check ids would let
+   * `@check sales.a` tagged `@rule SALES-005` silently satisfy `SALES-004`.
+   */
+  const implementedCheckIds = new Map<string, Set<string>>();
   for (const check of discovered) {
     const checkId = text(check.checkId);
-    if (checkId !== undefined) discoveredCheckIds.add(checkId);
+    if (checkId === undefined) continue;
+    for (const ruleId of new Set(stringsOf(check.rules))) {
+      let ids = implementedCheckIds.get(ruleId);
+      if (ids === undefined) {
+        ids = new Set<string>();
+        implementedCheckIds.set(ruleId, ids);
+      }
+      ids.add(checkId);
+    }
   }
 
   // Direction one: a rule whose declared check no test implements.
   for (const rule of rules) {
     const status = rule.status;
     if (status !== "enforced" && status !== "draft") continue;
+    const ruleId = text(rule.id);
     const declarations = listOf<CheckDecl>(rule.checks);
     const declaredIds: string[] = [];
     for (const check of declarations) {
@@ -109,15 +125,29 @@ export function reconcile(registry: Registry, discovery: DiscoveryResult): Findi
     // Review ruling R34: a draft rule with zero declared checks declares
     // knowledge without a seam and is not an orphan.
     if (status === "draft" && declarations.length === 0) continue;
-    if (declaredIds.some((checkId) => discoveredCheckIds.has(checkId))) continue;
 
-    const ruleId = text(rule.id);
+    // R38: every declared check id must be implemented by a check that names
+    // this rule; one finding per rule names the whole missing set.
+    const implemented = ruleId === undefined ? undefined : implementedCheckIds.get(ruleId);
+    const missing = declaredIds.filter((checkId) => implemented?.has(checkId) !== true);
+    // An enforced rule that declares no check at all is an orphan by definition
+    // (§5 validation rejects it earlier; the pure function still reports it).
+    const enforcedWithoutChecks = status === "enforced" && declaredIds.length === 0;
+    if (missing.length === 0 && !enforcedWithoutChecks) continue;
+
+    // Keep the "has no discovered check" wording when nothing of the rule is
+    // implemented (it is pinned by the orphan-check golden); a partially
+    // implemented rule says what is missing instead.
+    const complete = missing.length === declaredIds.length;
+    const headline = complete ? "has no discovered check" : "is missing a discovered check";
     const detail =
-      declaredIds.length === 0 ? "it declares no check id" : `missing ${declaredIds.map(quote).join(", ")}`;
+      missing.length === 0
+        ? "it declares no check id"
+        : `${complete ? "missing" : "not implemented:"} ${missing.map(quote).join(", ")}`;
     findings.push(
       finding({
         code: "integrity.rule_without_discovered_check",
-        message: `${status} rule ${label(ruleId)} has no discovered check (${detail})`,
+        message: `${status} rule ${label(ruleId)} ${headline} (${detail})`,
         at: sourceOf(rule),
         ids: { ruleId },
       }),
@@ -176,7 +206,7 @@ export function reconcile(registry: Registry, discovery: DiscoveryResult): Findi
         findings.push(
           finding({
             code: "integrity.negative_control_mismatch",
-            message: `@negative-control ${quote(taggedControl)} on check ${checkLabel} has no registry declaration (the check declares no negative_control)`,
+            message: `@negative-control ${quote(taggedControl)} on check ${checkLabel} does not match: the registry declares no negative_control for this check`,
             at,
             ids,
           }),
@@ -245,7 +275,7 @@ export function reconcile(registry: Registry, discovery: DiscoveryResult): Findi
 
   findings.push(...duplicateCheckTags(discovered));
   findings.push(...duplicateRuntimeIds(discovered));
-  findings.push(...discoveryErrors(discovery.errors));
+  findings.push(...discoveryErrors(discovery?.errors));
 
   return findings.sort(compareFindings);
 }
@@ -284,23 +314,26 @@ function duplicateCheckTags(discovered: DiscoveredCheck[]): Finding[] {
 }
 
 /**
- * R35: `CheckResult` carries no check id or file, so two discovered checks with
- * the same `runtimeId` make result attribution ambiguous. That is an integrity
- * failure, reported with the existing discovery-error pass-through code.
+ * R35: `CheckResult` carries no check id, so two discovered checks with the
+ * same `(file, runtimeId)` make result attribution ambiguous — the execution
+ * layer keys results by that pair. The same runtime id in a *different* file is
+ * a different check and not a duplicate. Reported with the existing
+ * discovery-error pass-through code.
  */
 function duplicateRuntimeIds(discovered: DiscoveredCheck[]): Finding[] {
   const findings: Finding[] = [];
-  const byRuntimeId = new Map<string, DiscoveredCheck[]>();
+  const groups = new Map<string, { runtimeId: string; checks: DiscoveredCheck[] }>();
 
   for (const check of discovered) {
     const runtimeId = text(check.runtimeId);
     if (runtimeId === undefined) continue;
-    const group = byRuntimeId.get(runtimeId);
-    if (group === undefined) byRuntimeId.set(runtimeId, [check]);
-    else group.push(check);
+    const key = `${testSource(check).file}\u0000${runtimeId}`;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, { runtimeId, checks: [check] });
+    else group.checks.push(check);
   }
 
-  for (const [runtimeId, group] of byRuntimeId) {
+  for (const { runtimeId, checks: group } of groups.values()) {
     if (group.length < 2) continue;
     const ordered = [...group].sort(compareTests);
     const [first, second] = ordered;
@@ -324,7 +357,7 @@ function duplicateRuntimeIds(discovered: DiscoveredCheck[]): Finding[] {
 }
 
 /** Every recovered discovery problem is a gate finding: the mapping cannot be trusted. */
-function discoveryErrors(errors: DiscoveryError[] | undefined): Finding[] {
+function discoveryErrors(errors: DiscoveryError[] | undefined | null): Finding[] {
   return listOf<DiscoveryError>(errors).map((error) => {
     const message = typeof error.message === "string" ? error.message : String(error.message);
     return finding({
@@ -409,8 +442,12 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : 1;
 }
 
+/**
+ * A defensive array view: a missing or non-array value is empty, and a `null`
+ * entry (a malformed document) is skipped instead of dereferenced.
+ */
 function listOf<T>(value: readonly T[] | undefined | null): T[] {
-  return Array.isArray(value) ? [...value] : [];
+  return Array.isArray(value) ? value.filter((entry: T) => typeof entry === "object" && entry !== null) : [];
 }
 
 function stringsOf(value: unknown): string[] {

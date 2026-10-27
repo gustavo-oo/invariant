@@ -29,6 +29,15 @@ describe("invariant validate integrity", () => {
     await expectGolden("tag-case-mismatch", run.stderr, "stderr.txt");
   });
 
+  it("exits 0 when every declared check reconciles with a discovered test", async () => {
+    // The two tests carry identical describe/test titles (same runtime id) in
+    // different files: legal, and the regression guard for cross-file ids.
+    const run = await runFixture("reconciled");
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toBe("");
+    await expectGolden("reconciled", run.stdout, "stdout.txt");
+  });
+
   it("emits integrity findings through --json like any other finding", async () => {
     const run = await runFixture("orphan-check", { args: ["validate", "--json"] });
     expect(run.exitCode).toBe(2);

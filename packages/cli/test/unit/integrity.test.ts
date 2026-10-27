@@ -3,15 +3,6 @@ import type { DiscoveredCheck, DiscoveryError, DiscoveryResult } from "../../src
 import { reconcile } from "../../src/registry/integrity.js";
 import type { CheckDecl, Flow, Registry, Rule, RuleStatus } from "../../src/registry/model.js";
 
-/**
- * `sabotage` is a reserved key, not a rule id: every check the helper builds
- * gets that sabotage path. It exists so the negative-control case reads as one
- * registry, not a second helper.
- */
-interface RuleMap {
-  [ruleId: string]: string[] | string;
-}
-
 interface FlowSpec {
   flow: string;
   /** Step id -> the rules the step lists. */
@@ -22,17 +13,22 @@ interface FlowSpec {
 
 interface RegistryOptions {
   status?: RuleStatus;
+  /** Sabotage path given to every declared check. */
+  sabotage?: string;
 }
 
 /** An in-memory registry: rule id -> declared check ids, plus an optional flow. */
-function reg(rules: RuleMap, flow?: FlowSpec, options: RegistryOptions = {}): Registry {
-  const sabotage = typeof rules["sabotage"] === "string" ? rules["sabotage"] : undefined;
+function reg(rules: Record<string, string[]>, flow?: FlowSpec, options: RegistryOptions = {}): Registry {
   const status = options.status ?? "enforced";
   const built: Rule[] = [];
 
   for (const [ruleId, checkIds] of Object.entries(rules)) {
-    if (ruleId === "sabotage" || !Array.isArray(checkIds)) continue;
-    built.push(buildRule(ruleId, checkIds, sabotage, status));
+    // A test helper that silently drops a malformed map makes `toEqual([])`
+    // pass vacuously, so an unexpected shape is a hard error.
+    if (!Array.isArray(checkIds) || checkIds.some((checkId) => typeof checkId !== "string")) {
+      throw new Error(`reg: ${ruleId} must map to a string[] of check ids`);
+    }
+    built.push(buildRule(ruleId, checkIds, options.sabotage, status));
   }
 
   return {
@@ -127,7 +123,7 @@ describe("reconcile", () => {
   it("reports a @negative-control path that disagrees with the registry (PEND-4)", () => {
     expect(
       codes(
-        reg({ "SALES-004": ["sales.a"], sabotage: ".invariant/sabotages/sales/one.ts" }),
+        reg({ "SALES-004": ["sales.a"] }, undefined, { sabotage: ".invariant/sabotages/sales/one.ts" }),
         disc([{ checkId: "sales.a", rules: ["SALES-004"], negativeControl: ".invariant/sabotages/sales/two.ts" }]),
       ),
     ).toContain("integrity.negative_control_mismatch");
@@ -149,14 +145,39 @@ describe("reconcile", () => {
   it("accepts a @negative-control tag that equals the declared sabotage path", () => {
     expect(
       codes(
-        reg({ "SALES-004": ["sales.a"], sabotage: ".invariant/sabotages/sales/one.ts" }),
+        reg({ "SALES-004": ["sales.a"] }, undefined, { sabotage: ".invariant/sabotages/sales/one.ts" }),
         disc([{ checkId: "sales.a", rules: ["SALES-004"], negativeControl: ".invariant/sabotages/sales/one.ts" }]),
       ),
     ).toEqual([]);
   });
 
   it("is silent when no @negative-control tag is present (the registry path is authoritative)", () => {
-    expect(codes(reg({ "SALES-004": ["sales.a"], sabotage: ".invariant/sabotages/sales/one.ts" }), disc([{ checkId: "sales.a", rules: ["SALES-004"] }]))).toEqual([]);
+    expect(
+      codes(
+        reg({ "SALES-004": ["sales.a"] }, undefined, { sabotage: ".invariant/sabotages/sales/one.ts" }),
+        disc([{ checkId: "sales.a", rules: ["SALES-004"] }]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("says the registry declares no negative_control when a flow-level check is tagged", () => {
+    const registry = reg(
+      { "SALES-009": [] },
+      { flow: "checkout", steps: { s1: ["SALES-009"] }, checks: ["checkout.completes"] },
+      { status: "draft" },
+    );
+    const findings = reconcile(
+      registry,
+      disc([
+        {
+          checkId: "checkout.completes",
+          flows: [{ flow: "checkout" }],
+          negativeControl: ".invariant/sabotages/sales/one.ts",
+        },
+      ]),
+    );
+    expect(findings.map((finding) => finding.code)).toEqual(["integrity.negative_control_mismatch"]);
+    expect(findings[0]?.message).toContain("the registry declares no negative_control for this check");
   });
 
   it("flags the same @rule twice within one test, but not the same rule on two tests", () => {
@@ -204,6 +225,7 @@ describe("reconcile", () => {
   });
 
   it("reports a duplicate runtime id as a discovery error naming both checks (R35)", () => {
+    // Same file: result attribution by (file, runtimeId) is genuinely ambiguous.
     const findings = reconcile(
       reg({ "SALES-004": ["sales.a", "sales.b"] }),
       disc([
@@ -215,6 +237,44 @@ describe("reconcile", () => {
     expect(findings[0]?.message).toContain('"sales.a"');
     expect(findings[0]?.message).toContain('"sales.b"');
     expect(findings[0]?.message).toContain('"suite > same"');
+  });
+
+  it("treats the same runtime id in two different files as two different checks", () => {
+    // runtimeId has no file component, but the execution layer keys results by
+    // (file, runtimeId): the same title in another file is not ambiguous.
+    expect(
+      codes(
+        reg({ "SALES-004": ["sales.a", "sales.b"] }),
+        disc([
+          { checkId: "sales.a", rules: ["SALES-004"], file: "src/a.test.ts", runtimeId: "sales > works" },
+          { checkId: "sales.b", rules: ["SALES-004"], file: "src/b.test.ts", runtimeId: "sales > works" },
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not let a check tagged with another rule satisfy the declaring rule (R39)", () => {
+    const findings = reconcile(
+      reg({ "SALES-004": ["sales.a"] }),
+      disc([{ checkId: "sales.a", rules: ["SALES-005"] }]),
+    );
+    expect(findings.map((finding) => finding.code)).toEqual([
+      "integrity.rule_without_discovered_check",
+      "integrity.unknown_rule_id",
+    ]);
+    expect(findings[0]?.ruleId).toBe("SALES-004");
+  });
+
+  it("flags a rule when only some of its declared checks are discovered (R38)", () => {
+    const [finding] = reconcile(
+      reg({ "SALES-004": ["sales.a", "sales.b"] }),
+      disc([{ checkId: "sales.a", rules: ["SALES-004"] }]),
+    );
+    expect(finding?.code).toBe("integrity.rule_without_discovered_check");
+    expect(finding?.ruleId).toBe("SALES-004");
+    expect(finding?.message).toContain("is missing a discovered check");
+    expect(finding?.message).toContain('"sales.b"');
+    expect(finding?.message).not.toContain('"sales.a"');
   });
 
   it("passes discovery errors through as gate findings", () => {
@@ -252,11 +312,35 @@ describe("reconcile", () => {
     expect(findings[1]?.message).toContain('"BBB-002"');
   });
 
-  it("never throws on an empty registry or a registry with no flows", () => {
+  it("never throws on malformed input: null entries, null documents and an empty registry", () => {
     expect(reconcile({ rules: [], flows: [], files: [] }, disc([]))).toEqual([]);
     expect(reconcile({ rules: [], flows: [], files: [] }, disc([{ checkId: "sales.a", rules: ["SALES-404"] }]))).toEqual([
       expect.objectContaining({ code: "integrity.check_without_registry_declaration" }),
       expect.objectContaining({ code: "integrity.unknown_rule_id" }),
     ]);
+
+    // A null entry in either discovery list must be skipped, not dereferenced.
+    const malformed = {
+      checks: [
+        null,
+        {
+          checkId: "sales.a",
+          rules: ["SALES-004"],
+          flows: [],
+          testName: "test",
+          file: "src/sales.test.ts",
+          line: 3,
+          frameworkId: "vitest",
+          runtimeId: "suite > test",
+        },
+      ],
+      errors: [null, { file: "src/broken.test.ts", message: "broken" }],
+    } as unknown as DiscoveryResult;
+    expect(reconcile(reg({ "SALES-004": ["sales.a"] }), malformed).map((finding) => finding.code)).toEqual([
+      "integrity.discovery_error",
+    ]);
+
+    // A null document (not just a malformed property) must not throw either.
+    expect(reconcile(null as unknown as Registry, null as unknown as DiscoveryResult)).toEqual([]);
   });
 });
