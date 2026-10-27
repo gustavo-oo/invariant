@@ -86,6 +86,7 @@ describe("worst", () => {
     expect(worst("pass", "pass")).toBe("pass");
     expect(worst("not-run", "flaky")).toBe("flaky");
     expect(worst("blocked", "flaky")).toBe("blocked");
+    expect(worst("pass", "not-run")).toBe("not-run");
   });
 });
 
@@ -124,6 +125,22 @@ describe("computeVerdicts", () => {
       reason: "check.flaky",
       checkIds: ["sales.a", "sales.b"],
       sabotageVerified: false,
+    });
+  });
+
+  it("makes a rule not-run when one check is not-run even if another passed", () => {
+    const reg = registry([rule("SALES-004", ["sales.a", "sales.b"])]);
+    const checks = [
+      discovered("sales.a", ["SALES-004"], { runtimeId: "rt-a" }),
+      discovered("sales.b", ["SALES-004"], { runtimeId: "rt-b" }),
+    ];
+
+    const verdicts = compute(reg, checks, [result("rt-a", "pass"), result("rt-b", "not-run")]);
+
+    expect(verdicts.rules[0]).toMatchObject({
+      verdict: "not-run",
+      reason: "check.not_run",
+      checkIds: ["sales.a", "sales.b"],
     });
   });
 
@@ -196,6 +213,88 @@ describe("computeVerdicts", () => {
       verdict: "fail",
       reason: "check.failed",
       message: "button not found",
+    });
+  });
+
+  it("prefers the governing rule over a tied flow-level check (R42)", () => {
+    const reg = registry(
+      [rule("SALES-001", ["sales.a"])],
+      [flow("checkout", [{ id: "s1", rules: ["SALES-001"] }], ["checkout.e2e"])],
+    );
+    const checks = [
+      discovered("sales.a", ["SALES-001"], { runtimeId: "rt-a" }),
+      discovered("checkout.e2e", [], { runtimeId: "rt-e2e" }),
+    ];
+
+    const verdicts = compute(reg, checks, [result("rt-a", "fail"), result("rt-e2e", "fail")]);
+
+    expect(verdicts.flows[0]).toMatchObject({
+      verdict: "fail",
+      reason: "governing_rule_not_green",
+    });
+  });
+
+  it("makes a flow green when its governing rules and flow-level checks are green", () => {
+    const reg = registry(
+      [rule("SALES-001", ["sales.a"])],
+      [flow("checkout", [{ id: "s1", rules: ["SALES-001"] }], ["checkout.e2e"])],
+    );
+    const checks = [
+      discovered("sales.a", ["SALES-001"], { runtimeId: "rt-a" }),
+      discovered("checkout.e2e", [], { runtimeId: "rt-e2e" }),
+    ];
+
+    const verdicts = compute(reg, checks, [result("rt-a", "pass"), result("rt-e2e", "pass")]);
+
+    expect(verdicts.flows[0]).toMatchObject({ verdict: "pass", reason: "flow_passed" });
+    expect(verdicts.flows[0]?.steps).toEqual([
+      { stepId: "s1", verdict: "pass", reason: "governing_rule_green", ruleIds: ["SALES-001"] },
+    ]);
+  });
+
+  it("keeps a flow not-run when a declared flow-level check has no discovered test", () => {
+    const reg = registry(
+      [rule("SALES-001", ["sales.a"])],
+      [flow("checkout", [{ id: "s1", rules: ["SALES-001"] }], ["checkout.e2e"])],
+    );
+    const checks = [discovered("sales.a", ["SALES-001"], { runtimeId: "rt-a" })];
+
+    const verdicts = compute(reg, checks, [result("rt-a", "pass")]);
+
+    expect(verdicts.flows[0]).toMatchObject({
+      verdict: "not-run",
+      reason: "flow_check_not_green",
+      checkIds: ["checkout.e2e"],
+    });
+    expect(verdicts.flows[0]?.steps).toEqual([
+      { stepId: "s1", verdict: "pass", reason: "governing_rule_green", ruleIds: ["SALES-001"] },
+    ]);
+  });
+
+  it("does not let a draft or deprecated rule redden its step or flow (R44)", () => {
+    const checks = [discovered("sales.a", ["SALES-001"], { runtimeId: "rt-a" })];
+    const results = [result("rt-a", "fail")];
+    const checkout = [flow("checkout", [{ id: "s1", rules: ["SALES-001"] }])];
+
+    for (const status of ["draft", "deprecated"] as const) {
+      const verdicts = compute(
+        registry([rule("SALES-001", ["sales.a"], { status })], checkout),
+        checks,
+        results,
+      );
+      // The rule is still reported red; only its gate participation is withheld.
+      expect(verdicts.rules[0]).toMatchObject({ status, verdict: "fail", reason: "check.failed" });
+      expect(verdicts.flows[0]).toMatchObject({ verdict: "pass", reason: "flow_passed" });
+      expect(verdicts.flows[0]?.steps).toEqual([
+        { stepId: "s1", verdict: "pass", reason: "governing_rule_green", ruleIds: ["SALES-001"] },
+      ]);
+    }
+
+    const enforced = compute(registry([rule("SALES-001", ["sales.a"])], checkout), checks, results);
+    expect(enforced.flows[0]).toMatchObject({ verdict: "fail", reason: "governing_rule_not_green" });
+    expect(enforced.flows[0]?.steps[0]).toMatchObject({
+      verdict: "fail",
+      reason: "governing_rule_not_green",
     });
   });
 

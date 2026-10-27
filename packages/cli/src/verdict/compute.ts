@@ -49,10 +49,15 @@ function worstOf(verdicts: readonly Verdict[]): Verdict {
  * Turn the registry, discovery, results and sabotage outcomes into verdicts.
  *
  * Attribution is by the check's own tags (R39): a check contributes to a rule
- * only when its `rules` array contains that rule's id. A declared check that was
- * never discovered contributes nothing (integrity already fails that repo); a
- * rule left with no attributed check is red with `rule_no_check`, never green by
- * default.
+ * only when its `rules` array contains that rule's id. A rule-declared check
+ * that was never discovered contributes nothing (integrity already fails that
+ * repo); a rule left with no attributed check is red with `rule_no_check`, never
+ * green by default. Flow-level checks are different: integrity reports missing
+ * rule-declared checks only, so a declared flow check with no discovered test
+ * contributes `not-run` to its flow instead of disappearing.
+ *
+ * `outcomes` is keyed by `checkId` (R45), not `runtimeId`: the future sabotage
+ * producer must key by the check id, or every rule looks `not-executed`.
  */
 export function computeVerdicts(input: {
   registry: Registry;
@@ -163,9 +168,11 @@ function buildRuleVerdicts(rules: Rule[], checks: CheckVerdict[]): RuleVerdict[]
 
 /**
  * One verdict per flow, in registry order (R7). A flow is green only when every
- * governing rule, every step and every flow-level check is green; the worst
- * contributor decides the verdict. A step names its own status, and the flow's
- * reason points at either the offending flow-level check or the governing rule.
+ * enforced governing rule, every step and every flow-level check is green; the
+ * worst contributor decides the verdict. A step names its own status, and the
+ * flow's reason points at either the offending flow-level check or the governing
+ * rule. Draft and deprecated rules are reported by `buildRuleVerdicts`, but R44
+ * keeps them out of the gate: they cannot redden a step or a flow.
  */
 function buildFlowVerdicts(flows: Flow[], checks: CheckVerdict[], rules: RuleVerdict[]): FlowVerdict[] {
   const ruleById = new Map(rules.map((rule) => [rule.ruleId, rule]));
@@ -182,9 +189,11 @@ function buildFlowVerdicts(flows: Flow[], checks: CheckVerdict[], rules: RuleVer
 
     for (const step of listOf<FlowStep>(flow.steps)) {
       const ruleIds = stringsOf(step.rules);
+      // R44: a draft or deprecated rule is still reported, but only an enforced
+      // rule governs a step (and therefore the flow).
       const ruled = ruleIds
         .map((ruleId) => ruleById.get(ruleId))
-        .filter((rule): rule is RuleVerdict => rule !== undefined);
+        .filter((rule): rule is RuleVerdict => rule !== undefined && rule.status === "enforced");
       governingRules.push(...ruled);
 
       const verdict = worstOf(ruled.map((rule) => rule.verdict));
@@ -199,9 +208,15 @@ function buildFlowVerdicts(flows: Flow[], checks: CheckVerdict[], rules: RuleVer
     const checkIds = listOf<FlowCheckDecl>(flow.checks)
       .map((check) => text(check.id))
       .filter((checkId): checkId is string => checkId !== undefined);
-    const flowChecks = checkIds.flatMap((checkId) => checksById.get(checkId) ?? []);
-
-    const flowCheckWorst = worstOf(flowChecks.map((check) => check.verdict));
+    // R7: a declared flow check with no discovered test is not a pass — it is
+    // `not-run`. Integrity reports missing rule-declared checks only, so this is
+    // the last place the false green can be prevented.
+    const flowCheckWorst = worstOf(
+      checkIds.map((checkId) => {
+        const matched = checksById.get(checkId);
+        return matched === undefined ? "not-run" : worstOf(matched.map((check) => check.verdict));
+      }),
+    );
     const governingWorst = worstOf([
       ...governingRules.map((rule) => rule.verdict),
       ...steps.map((step) => step.verdict),
@@ -260,6 +275,8 @@ function declaredLayers(rules: Rule[], flows: Flow[]): Map<string, CheckLayer> {
   const layers = new Map<string, CheckLayer>();
   const declare = (check: CheckDecl | FlowCheckDecl): void => {
     const checkId = text(check.id);
+    // Rules are scanned before flows, so the first declaration of an id fixes its
+    // layer: a rule's `unit` wins over a flow check's `e2e` for the same check.
     if (checkId !== undefined && !layers.has(checkId)) layers.set(checkId, check.layer);
   };
 
