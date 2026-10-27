@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExitCode } from "../../src/exit.js";
+import type { Report } from "../../src/report/shape.js";
+import { isReport } from "./goldens.js";
 import { linkNodeModules } from "./node-modules.js";
 
 /** Absolute path of the built CLI. `npm test` builds before running the suite. */
@@ -23,8 +25,8 @@ export interface FixtureRun {
   exitCode: ExitCode;
   stdout: string;
   stderr: string;
-  /** Parsed `invariant-report.json`, when the run produced one. Typed `unknown` until the Report type exists. */
-  report: unknown;
+  /** Parsed `invariant-report.json`, when the run produced one. */
+  report: Report | null;
   /** Contents of `invariant-comment.md`, when the run produced one. */
   comment: string | null;
   /** Real path of the copied fixture that was used as the working directory. */
@@ -85,9 +87,12 @@ export async function runFixture(name: string, opts: { args?: string[] } = {}): 
   };
 }
 
-async function readReport(root: string): Promise<unknown> {
+async function readReport(root: string): Promise<Report | null> {
+  const file = path.join(root, "invariant-report.json");
   try {
-    return JSON.parse(await readFile(path.join(root, "invariant-report.json"), "utf8")) as unknown;
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (!isReport(parsed)) throw new Error(`invariant: ${file} is not an invariant report`);
+    return parsed;
   } catch (cause) {
     if (isNotFound(cause)) return null;
     throw cause;
