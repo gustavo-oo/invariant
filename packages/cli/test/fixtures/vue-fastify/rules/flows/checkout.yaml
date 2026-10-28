@@ -1,0 +1,15 @@
+flows:
+  - id: checkout
+    name: "A checkout completes through client and server"
+    owner: team-commerce
+    criticality: critical
+    steps:
+      - id: s1
+        name: "The client accepts the submission"
+        rules: [CHECKOUT-001]
+      - id: s2
+        name: "The server places the order"
+        rules: [ORDERS-001]
+    checks:
+      - id: checkout.completes
+        layer: e2e

@@ -1,0 +1,1 @@
+adapters: [vitest, playwright]

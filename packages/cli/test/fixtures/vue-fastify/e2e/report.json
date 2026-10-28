@@ -1,0 +1,20 @@
+{
+  "suites": [
+    {
+      "title": "chromium",
+      "file": "e2e/checkout.spec.ts",
+      "suites": [
+        {
+          "title": "checkout",
+          "specs": [
+            {
+              "title": "completes",
+              "ok": true,
+              "tests": [{ "status": "expected", "results": [{ "status": "passed" }] }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

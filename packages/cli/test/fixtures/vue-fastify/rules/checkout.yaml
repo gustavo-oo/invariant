@@ -1,0 +1,29 @@
+capability: checkout
+rules:
+  - id: ORDERS-001
+    statement: "An order with available stock MUST be accepted."
+    rationale: "The injected inventory is the server contract."
+    criticality: normal
+    status: enforced
+    owners: [team-commerce]
+    checks:
+      - id: orders.accepts-available
+        layer: integration
+        negative_control:
+          kind: seam
+          seam: "placeOrder(createInventory())"
+          sabotage: .invariant/sabotages/server/inventory.ts
+
+  - id: CHECKOUT-001
+    statement: "A successful submission MUST be accepted by the client."
+    rationale: "The injected API client is the UI contract."
+    criticality: normal
+    status: enforced
+    owners: [team-commerce]
+    checks:
+      - id: checkout.ui-accepts-order
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: "submitOrder()"
+          sabotage: .invariant/sabotages/client/api.ts
