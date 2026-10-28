@@ -74,7 +74,7 @@ The gate is enforced by the active ruleset. The repository secret
 **G1**. The PR's gate run `40731664293` passed with `class G1`, `SELF-004:
 pass` and `exit_code: 0`.
 
-The baseline becomes effective on `main` when this PR is reviewed and merged.
+The baseline is recorded in this PR and becomes `main`'s baseline on merge.
 The session's `gh` OAuth token was **not** stored; the secret is the
 fine-grained PAT configured by the repository owner.
 

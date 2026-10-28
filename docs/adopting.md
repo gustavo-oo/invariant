@@ -147,8 +147,8 @@ ruleset is imported and the first green gate run.
 
 The script never creates the PAT. It refuses to record a baseline unless the
 doctor actually observed G1, so a missing permission cannot silently produce a
-G1 claim. This repository has verified and recorded G1; the deployment PR is
-awaiting the required review.
+G1 claim. This repository has verified and recorded G1; see the deployment
+record.
 
 
 The generated workflow runs four jobs:
