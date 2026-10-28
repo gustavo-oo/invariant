@@ -11,17 +11,28 @@
 import type { CheckResult } from "./api.js";
 
 export function alignReportResults(
-  checks: readonly { runtimeId: string }[],
+  checks: readonly { runtimeId: string; frameworkId?: string }[],
   results: readonly CheckResult[],
 ): CheckResult[] {
   const consumed = new Set<number>();
   return checks.map((check) => {
     const index = results.findIndex(
-      (result, candidate) => !consumed.has(candidate) && result.runtimeId === check.runtimeId,
+      (result, candidate) =>
+        !consumed.has(candidate) &&
+        result.runtimeId === check.runtimeId &&
+        (check.frameworkId === undefined ||
+          result.frameworkId === undefined ||
+          result.frameworkId === check.frameworkId),
     );
     const matched = index === -1 ? undefined : results[index];
-    if (matched === undefined) return { runtimeId: check.runtimeId, outcome: "not-run" };
+    if (matched === undefined) {
+      return {
+        runtimeId: check.runtimeId,
+        outcome: "not-run",
+        ...(check.frameworkId === undefined ? {} : { frameworkId: check.frameworkId }),
+      };
+    }
     consumed.add(index);
-    return matched;
+    return check.frameworkId === undefined ? matched : { ...matched, frameworkId: check.frameworkId };
   });
 }

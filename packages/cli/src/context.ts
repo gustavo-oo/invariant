@@ -40,7 +40,10 @@ import { createForgeProbe } from "./seams/forge-probe.js";
  */
 export interface VerifyInput {
   root: string;
+  /** Phase 0/1 single-adapter override; prefer `adapterIds`. */
   adapterId?: string;
+  /** The adapters to use instead of `.invariant/config.yaml`. */
+  adapterIds?: string[];
   base?: string;
   head?: string;
   event?: string;
@@ -56,6 +59,8 @@ export interface VerifyContext {
   changedFiles: ChangedFilesProvider;
   runner: CheckRunner;
   forgeProbe: ForgeProbe;
+  /** Every configured adapter, in discovery order. */
+  adapters: Adapter[];
 }
 
 /**
@@ -68,7 +73,7 @@ export interface PreparedVerify {
   context: VerifyContext;
   configFindings: Finding[];
   registryFindings: Finding[];
-  adapter: Adapter | undefined;
+  adapters: Adapter[];
 }
 
 /** Build the context `verify` runs against. */
@@ -80,27 +85,37 @@ export async function buildVerifyContext(input: VerifyInput): Promise<VerifyCont
 export async function prepareVerify(input: VerifyInput): Promise<PreparedVerify> {
   const root = path.resolve(input.root);
   const loaded = await loadConfig(root);
-  const config: Config =
-    input.adapterId === undefined ? loaded.config : { ...loaded.config, adapter: input.adapterId };
+  const ids =
+    input.adapterIds ??
+    (input.adapterId === undefined ? loaded.config.adapters : [input.adapterId]);
+  const config: Config = {
+    ...loaded.config,
+    adapters: ids,
+    adapter: ids[0] ?? loaded.config.adapter,
+  };
   const { registry, findings: registryFindings } = await loadRegistry(root);
-  const adapter = findAdapter(config.adapter);
+  const adapters = ids
+    .map((id) => findAdapter(id))
+    .filter((adapter): adapter is Adapter => adapter !== undefined);
+  const discovery = await createDiscoverySource(config).discover(root);
 
   return {
     context: {
       root,
       config,
       registry,
-      discovery: await createDiscoverySource(config).discover(root),
+      discovery,
       changedFiles: createChangedFilesProvider(),
       // An unknown adapter is already a discovery error (stage 2, exit 2), so
       // this placeholder is never reached; if it ever were, the runner fails
       // closed instead of executing nothing and reporting green.
-      runner: createCheckRunner(adapter ?? unavailableAdapter(config.adapter)),
+      runner: createCheckRunner(adapters.length > 0 ? adapters : [unavailableAdapter(config.adapter)]),
       forgeProbe: createForgeProbe(config),
+      adapters,
     },
     configFindings: loaded.findings,
     registryFindings,
-    adapter,
+    adapters,
   };
 }
 

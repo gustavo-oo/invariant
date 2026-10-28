@@ -12,7 +12,6 @@ import { LineCounter, parseDocument } from "yaml";
 import { readText } from "../fsutil.js";
 import type { Finding } from "../registry/model.js";
 import { DEFAULT_CONFIG, type Config, type CredentialBoundary, type ScopeMode, type SkillDistribution } from "./model.js";
-
 const DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 const SCHEMA_URL = new URL("../../schema/config.schema.json", import.meta.url);
 
@@ -53,6 +52,13 @@ export async function loadConfig(root: string): Promise<{ config: Config; findin
       findings.push(configFinding(`${issue.instancePath === "" ? "/" : issue.instancePath} ${issue.message ?? "is invalid"}`));
     }
   }
+  if (hasAdapterConflict(data)) {
+    findings.push({
+      code: "config.adapter_conflict",
+      message: "adapter and adapters are both set; use adapters as the single source of truth",
+      file: CONFIG_FILE,
+    });
+  }
   return { config: mergeConfig(data), findings };
 }
 
@@ -78,8 +84,10 @@ function mergeConfig(raw: unknown): Config {
   const skill = asRecord(value["skill"]);
   const doctor = asRecord(value["doctor"]);
   const ruleChange = asRecord(value["ruleChange"]);
+  const adapters = adapterList(value);
   return {
-    adapter: stringOr(value["adapter"], DEFAULT_CONFIG.adapter),
+    adapter: adapters[0] ?? DEFAULT_CONFIG.adapter,
+    adapters,
     scope: { mode: enumOr<ScopeMode>(scope["mode"], ["advisory", "blocking"], DEFAULT_CONFIG.scope.mode) },
     skill: {
       distribution: enumOr<SkillDistribution>(
@@ -105,6 +113,22 @@ function mergeConfig(raw: unknown): Config {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** `adapters` wins; `adapter` is the Phase 0/1 single-adapter alias. */
+function adapterList(value: Record<string, unknown>): string[] {
+  const list = value["adapters"];
+  if (Array.isArray(list) && list.length > 0 && list.every((item) => typeof item === "string")) {
+    return [...new Set(list)];
+  }
+  const single = value["adapter"];
+  if (typeof single === "string" && single !== "") return [single];
+  return [...DEFAULT_CONFIG.adapters];
+}
+
+function hasAdapterConflict(value: unknown): boolean {
+  const record = asRecord(value);
+  return record["adapter"] !== undefined && record["adapters"] !== undefined;
 }
 
 function stringOr(value: unknown, fallback: string): string {

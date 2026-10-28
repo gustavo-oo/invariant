@@ -42,7 +42,7 @@ describe("invariant run", () => {
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toBe("");
     expect(JSON.parse(run.stdout)).toEqual({
-      checks: [{ runtimeId: "never runs", outcome: "not-run" }],
+      checks: [{ runtimeId: "never runs", outcome: "not-run", frameworkId: "vitest" }],
     });
   });
 
@@ -76,6 +76,8 @@ describe("invariant run", () => {
     expect(run.stdout).toBe("");
     expect(run.stderr).toBe("");
     const artifact = JSON.parse(await readFile(path.join(run.root, "run-out.json"), "utf8")) as unknown;
-    expect(artifact).toEqual({ checks: [{ runtimeId: "never runs", outcome: "not-run" }] });
+    expect(artifact).toEqual({
+      checks: [{ runtimeId: "never runs", outcome: "not-run", frameworkId: "vitest" }],
+    });
   });
 });

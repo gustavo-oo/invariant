@@ -13,7 +13,7 @@ describe("createDiscoverySource", () => {
 
   it("reports an unknown adapter as an error instead of throwing", async () => {
     const root = await makeTmpRepo({});
-    const source = createDiscoverySource({ ...DEFAULT_CONFIG, adapter: "jest" });
+    const source = createDiscoverySource({ ...DEFAULT_CONFIG, adapter: "jest", adapters: ["jest"] });
     const result = await source.discover(root);
     expect(source.id).toBe("jest");
     expect(result.checks).toEqual([]);

@@ -437,6 +437,9 @@ function checkProblem(value: unknown, at: string): string | null {
   if (value["message"] !== undefined && typeof value["message"] !== "string") {
     return `${at}.message is not a string`;
   }
+  if (value["frameworkId"] !== undefined && typeof value["frameworkId"] !== "string") {
+    return `${at}.frameworkId is not a string`;
+  }
   return null;
 }
 

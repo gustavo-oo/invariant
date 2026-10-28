@@ -30,6 +30,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Adapter, CheckResult } from "../adapter/api.js";
 import { alignReportResults } from "../adapter/align.js";
+import { executeAdapters } from "../adapter/execute.js";
 import { readEvent, type CiContext } from "../ci/event.js";
 import { prepareVerify, type VerifyContext, type VerifyInput } from "../context.js";
 import { readDoctorEvidence } from "../doctor/evidence.js";
@@ -279,9 +280,9 @@ export async function runVerify(input: VerifyRunInput): Promise<VerifyRun> {
   const productFindings = stage4.filter((finding) => finding.code === PROTECTED_PATH_CHANGED);
   gateFindings.push(...stage4.filter((finding) => finding.code !== PROTECTED_PATH_CHANGED));
 
-  // Stages 5–6. A report is read before anything executes; only a missing or
+  // Stage 5. Reports are read before anything executes; only a missing or
   // unreadable report falls back to the adapter (Task 6, spec §6).
-  const executed = await execute(prepared.adapter, context, input.reports ?? []);
+  const executed = await execute(prepared.adapters, context, input.reports ?? []);
   if (!Array.isArray(executed)) {
     gateFindings.push({
       code: "adapter.failed",
@@ -303,7 +304,7 @@ export async function runVerify(input: VerifyRunInput): Promise<VerifyRun> {
   const negative = await runNegativeControl({
     registry,
     root,
-    adapters: prepared.adapter === undefined ? [] : [prepared.adapter],
+    adapters: prepared.adapters,
     discovered: discovery.checks,
   });
   if (negative.errors.length > 0) {
@@ -356,18 +357,11 @@ function summaryLine(report: Report): string {
  * check in input order. A check with no report entry is `not-run`, never green.
  */
 async function execute(
-  adapter: Adapter | undefined,
+  adapters: Adapter[],
   context: VerifyContext,
   reports: string[],
 ): Promise<CheckResult[] | { error: string }> {
-  if (adapter === undefined) {
-    return { error: `invariant: unknown adapter: ${context.config.adapter}` };
-  }
-  if (reports.length > 0) {
-    const reported = await adapter.readReports(reports, context.root);
-    if (reported !== null) return alignReportResults(context.discovery.checks, reported);
-  }
-  return await context.runner.run(context.discovery.checks, { root: context.root });
+  return await executeAdapters(adapters, context.discovery.checks, { root: context.root }, reports);
 }
 
 /** Stages 5–7: only an enforced rule or any flow can redden the product. */
@@ -469,7 +463,7 @@ function errorMessage(cause: unknown): string {
 
 interface Options {
   root: string;
-  adapter: string | null;
+  adapters: string[];
   base: string | null;
   head: string | null;
   event: string | null;
@@ -490,7 +484,7 @@ export async function verify(argv: string[], io: CliIo): Promise<ExitCode> {
 
   const run = await runVerify({
     root: options.root,
-    ...(options.adapter === null ? {} : { adapterId: options.adapter }),
+    ...(options.adapters.length === 0 ? {} : { adapterIds: options.adapters }),
     ...(options.base === null ? {} : { base: options.base }),
     ...(options.head === null ? {} : { head: options.head }),
     ...(options.event === null ? {} : { event: options.event }),
@@ -515,7 +509,7 @@ export async function verify(argv: string[], io: CliIo): Promise<ExitCode> {
 
 function parseArgs(argv: string[], io: CliIo): { kind: "ok"; options: Options } | { kind: "exit"; code: ExitCode } {
   let root = io.cwd;
-  let adapter: string | null = null;
+  const adapters: string[] = [];
   let base: string | null = null;
   let head: string | null = null;
   let event: string | null = null;
@@ -558,7 +552,7 @@ function parseArgs(argv: string[], io: CliIo): { kind: "ok"; options: Options } 
         }
         index += 1;
         if (arg === "--root") root = path.resolve(io.cwd, value);
-        else if (arg === "--adapter") adapter = value;
+        else if (arg === "--adapter") adapters.push(value);
         else if (arg === "--base") base = value === "" ? null : value;
         else if (arg === "--head") head = value;
         // An explicit event path is cwd-relative like every other CLI path;
@@ -579,7 +573,7 @@ function parseArgs(argv: string[], io: CliIo): { kind: "ok"; options: Options } 
     }
   }
 
-  return { kind: "ok", options: { root, adapter, base, head, event, reports, doctorResult, repo, runId, baseline, out, comment, json } };
+  return { kind: "ok", options: { root, adapters, base, head, event, reports, doctorResult, repo, runId, baseline, out, comment, json } };
 }
 
 /** One finding per line, in the same shape `validate` prints. */

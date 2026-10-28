@@ -46,7 +46,7 @@ describe("stubAdapter", () => {
 
     expect(await adapter.discover(".")).toEqual({ checks: [check], errors: [] });
     expect(await adapter.run([check], { root: "." })).toEqual([
-      { runtimeId: "sales > works", outcome: "fail" },
+      { runtimeId: "sales > works", outcome: "fail", frameworkId: "stub" },
     ]);
     expect(await adapter.readReports([], ".")).toEqual([
       { runtimeId: "sales > works", outcome: "fail" },
@@ -56,7 +56,7 @@ describe("stubAdapter", () => {
   it("fills a missing result with not-run instead of greening it", async () => {
     const adapter = stubAdapter({ discovered: [check], results: [] });
     expect(await adapter.run([check], { root: "." })).toEqual([
-      { runtimeId: "sales > works", outcome: "not-run" },
+      { runtimeId: "sales > works", outcome: "not-run", frameworkId: "stub" },
     ]);
   });
 });

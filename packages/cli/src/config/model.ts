@@ -14,7 +14,10 @@ export type SkillDistribution = "manifest-only" | "opencode" | "both";
 export type CredentialBoundary = "declared" | "none";
 
 export interface Config {
+  /** The first configured adapter; kept for compatibility with Phase 0/1. */
   adapter: string;
+  /** Every adapter that participates in one gate, in discovery order. */
+  adapters: string[];
   scope: { mode: ScopeMode };
   skill: { distribution: SkillDistribution };
   doctor: { apiUrl: string; tokenEnv: string; expectedAppId: number };
@@ -26,6 +29,7 @@ export interface Config {
 /** The documented defaults, applied for every absent property. */
 export const DEFAULT_CONFIG: Config = {
   adapter: "vitest",
+  adapters: ["vitest"],
   scope: { mode: "advisory" },
   skill: { distribution: "manifest-only" },
   doctor: {

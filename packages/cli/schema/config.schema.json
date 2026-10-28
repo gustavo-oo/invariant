@@ -9,6 +9,13 @@
       "type": "string",
       "default": "vitest"
     },
+    "adapters": {
+      "type": "array",
+      "description": "Every test-framework adapter in one gate, in discovery order. When present, adapter is not used.",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "scope": {
       "type": "object",
       "additionalProperties": false,

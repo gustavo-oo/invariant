@@ -37,6 +37,8 @@ export interface SabotageSpec {
 /** The outcome of one discovered test, keyed by its `runtimeId`. */
 export interface CheckResult {
   runtimeId: string;
+  /** The adapter that produced this result; used to disambiguate equal ids. */
+  frameworkId?: string;
   outcome: "pass" | "fail" | "not-run" | "flaky";
   /** Why a failed test failed, when the adapter can tell. */
   classification?: "assertion" | "harness" | "timeout";

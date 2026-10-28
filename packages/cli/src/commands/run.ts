@@ -15,7 +15,7 @@
  */
 import path from "node:path";
 import type { Adapter, CheckResult } from "../adapter/api.js";
-import { alignReportResults } from "../adapter/align.js";
+import { executeAdapters } from "../adapter/execute.js";
 import { findAdapter } from "../adapter/registry.js";
 import { loadConfig } from "../config/load.js";
 import type { DiscoveredCheck, DiscoveryError } from "../discovery/types.js";
@@ -23,7 +23,6 @@ import { EXIT, type ExitCode } from "../exit.js";
 import { stringifyJson, writeOut, type CliIo } from "../output.js";
 import { loadRegistry } from "../registry/load.js";
 import { validateRegistry, type Finding } from "../registry/validate.js";
-import { createCheckRunner } from "../seams/check-runner.js";
 import { createDiscoverySource } from "../seams/discovery-source.js";
 
 const HELP = `invariant run - execute the checks discovered for rules/**
@@ -55,7 +54,7 @@ Exit codes:
 
 interface Options {
   root: string;
-  adapter: string | null;
+  adapters: string[];
   reports: string[];
   json: boolean;
   out: string | null;
@@ -67,7 +66,8 @@ export async function run(argv: string[], io: CliIo): Promise<ExitCode> {
   const options = parsed.options;
 
   const { config, findings: configFindings } = await loadConfig(options.root);
-  const effectiveConfig = options.adapter === null ? config : { ...config, adapter: options.adapter };
+  const ids = options.adapters.length > 0 ? options.adapters : config.adapters;
+  const effectiveConfig = { ...config, adapters: ids, adapter: ids[0] ?? config.adapter };
   const { registry, findings: registryFindings } = await loadRegistry(options.root);
   const findings = [
     ...configFindings,
@@ -97,11 +97,12 @@ export async function run(argv: string[], io: CliIo): Promise<ExitCode> {
     return EXIT.GATE_BROKEN;
   }
 
-  const adapter = findAdapter(source.id);
-  if (adapter === undefined) {
-    // `createDiscoverySource` already reports an unknown adapter as a discovery
-    // error; keep this branch explicit rather than crashing if that ever drifts.
-    io.stderr(`invariant run: unknown adapter: ${source.id}\n`);
+  const resolved = ids
+    .map((id) => findAdapter(id))
+    .filter((found): found is Adapter => found !== undefined);
+  if (resolved.length !== ids.length) {
+    const unknown = ids.filter((id) => findAdapter(id) === undefined);
+    io.stderr(`invariant run: unknown adapter: ${unknown.join(", ")}\n`);
     return EXIT.GATE_BROKEN;
   }
 
@@ -112,7 +113,7 @@ export async function run(argv: string[], io: CliIo): Promise<ExitCode> {
     return EXIT.PRODUCT_BROKEN;
   }
 
-  const executed = await execute(adapter, discovery.checks, options);
+  const executed = await execute(resolved, discovery.checks, options);
   if (!Array.isArray(executed)) {
     io.stderr(`${executed.error}\n`);
     return EXIT.GATE_BROKEN;
@@ -137,15 +138,11 @@ export async function run(argv: string[], io: CliIo): Promise<ExitCode> {
  * report has no check ids at all and is matched by `runtimeId` instead.
  */
 async function execute(
-  adapter: Adapter,
+  adapters: Adapter[],
   checks: DiscoveredCheck[],
   options: Options,
 ): Promise<CheckResult[] | { error: string }> {
-  if (options.reports.length > 0) {
-    const reported = await adapter.readReports(options.reports, options.root);
-    if (reported !== null) return alignReportResults(checks, reported);
-  }
-  return await createCheckRunner(adapter).run(checks, { root: options.root });
+  return await executeAdapters(adapters, checks, { root: options.root }, options.reports);
 }
 
 /**
@@ -158,12 +155,12 @@ function align(checks: DiscoveredCheck[], results: CheckResult[]): CheckResult[]
 }
 
 function notRun(check: DiscoveredCheck): CheckResult {
-  return { runtimeId: check.runtimeId, outcome: "not-run" };
+  return { runtimeId: check.runtimeId, outcome: "not-run", frameworkId: check.frameworkId };
 }
 
 function parseArgs(argv: string[], io: CliIo): { kind: "ok"; options: Options } | { kind: "exit"; code: ExitCode } {
   let root = io.cwd;
-  let adapter: string | null = null;
+  const adapters: string[] = [];
   const reports: string[] = [];
   let json = false;
   let out: string | null = null;
@@ -192,7 +189,7 @@ function parseArgs(argv: string[], io: CliIo): { kind: "ok"; options: Options } 
         }
         index += 1;
         if (arg === "--root") root = path.resolve(io.cwd, value);
-        else if (arg === "--adapter") adapter = value;
+        else if (arg === "--adapter") adapters.push(value);
         else if (arg === "--reports") reports.push(value);
         else if (arg === "--out") out = value;
         // --base and --event are accepted and ignored in this task.
@@ -204,7 +201,7 @@ function parseArgs(argv: string[], io: CliIo): { kind: "ok"; options: Options } 
     }
   }
 
-  return { kind: "ok", options: { root, adapter, reports, json, out } };
+  return { kind: "ok", options: { root, adapters, reports, json, out } };
 }
 
 /** One finding per line, in the same shape `validate` prints. */

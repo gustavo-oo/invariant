@@ -13,6 +13,7 @@
  * form is one summary line, the declared count, then one line per finding.
  */
 import path from "node:path";
+import type { Adapter } from "../adapter/api.js";
 import { findAdapter } from "../adapter/registry.js";
 import { loadConfig } from "../config/load.js";
 import { EXIT, type ExitCode } from "../exit.js";
@@ -55,7 +56,7 @@ Exit codes:
 
 interface Options {
   root: string;
-  adapter: string | null;
+  adapters: string[];
   json: boolean;
   out: string | null;
 }
@@ -73,7 +74,8 @@ export async function negative(argv: string[], io: CliIo): Promise<ExitCode> {
   const options = parsed.options;
 
   const { config, findings: configFindings } = await loadConfig(options.root);
-  const effectiveConfig = options.adapter === null ? config : { ...config, adapter: options.adapter };
+  const ids = options.adapters.length > 0 ? options.adapters : config.adapters;
+  const effectiveConfig = { ...config, adapters: ids, adapter: ids[0] ?? config.adapter };
   const { registry, findings: registryFindings } = await loadRegistry(options.root);
   const declared = declaredChecks(registry);
 
@@ -112,18 +114,21 @@ export async function negative(argv: string[], io: CliIo): Promise<ExitCode> {
     );
   }
 
-  const adapter = findAdapter(effectiveConfig.adapter);
-  if (adapter === undefined) {
+  const resolved = ids
+    .map((id) => findAdapter(id))
+    .filter((found): found is Adapter => found !== undefined);
+  if (resolved.length !== ids.length) {
+    const unknown = ids.filter((id) => findAdapter(id) === undefined);
     const finding: Finding = {
       code: "negative.adapter_missing",
-      message: `unknown adapter: ${effectiveConfig.adapter}`,
+      message: `unknown adapter: ${unknown.join(", ")}`,
       file: ".invariant/config.yaml",
     };
     return emit(
       io,
       options,
       artifactOf(declared, false, new Map(), [finding]),
-      `${NOT_EXECUTED}unknown adapter: ${effectiveConfig.adapter}`,
+      `${NOT_EXECUTED}unknown adapter: ${unknown.join(", ")}`,
       EXIT.GATE_BROKEN,
     );
   }
@@ -131,7 +136,7 @@ export async function negative(argv: string[], io: CliIo): Promise<ExitCode> {
   const run = await runNegativeControl({
     registry,
     root: options.root,
-    adapters: [adapter],
+    adapters: resolved,
     discovered: discovery.checks,
   });
   const artifact = artifactOf(run.declared, run.executed, run.outcomes, [...run.errors, ...run.findings]);
@@ -229,7 +234,7 @@ function parseArgs(
   io: CliIo,
 ): { kind: "ok"; options: Options } | { kind: "exit"; code: ExitCode } {
   let root = io.cwd;
-  let adapter: string | null = null;
+  const adapters: string[] = [];
   let json = false;
   let out: string | null = null;
 
@@ -254,7 +259,7 @@ function parseArgs(
         }
         index += 1;
         if (arg === "--root") root = path.resolve(io.cwd, value);
-        else if (arg === "--adapter") adapter = value;
+        else if (arg === "--adapter") adapters.push(value);
         else out = value;
         break;
       }
@@ -264,5 +269,5 @@ function parseArgs(
     }
   }
 
-  return { kind: "ok", options: { root, adapter, json, out } };
+  return { kind: "ok", options: { root, adapters, json, out } };
 }
