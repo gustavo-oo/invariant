@@ -149,6 +149,7 @@ jobs:
           app-id: ${{ env.INVARIANT_APP_ID }}
           private-key: ${{ env.INVARIANT_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
       - name: Observe branch protection
         continue-on-error: true
         env:

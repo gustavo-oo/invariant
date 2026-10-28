@@ -17,8 +17,12 @@ checks that prove the separation.
 - The repository standard is a GitHub App: the workflow mints the doctor token
   from the repository secrets `INVARIANT_APP_ID` and
   `INVARIANT_APP_PRIVATE_KEY`. The legacy `INVARIANT_DOCTOR_TOKEN` PAT secret
-  was removed; set the two App secrets before enabling the gate. The App id and
-  installation id are not secrets; the private key is.
+  was removed; the App secrets are configured. App `5514312`, installation
+  `176268531`, installed on `invariant` and `giro-platform-v2`; each token is
+  scoped to one repository.
+- The private key is installation-wide. If the two repositories share the same
+  App secrets, a compromise of either repository's Actions can mint tokens for
+  both. Use a separate App per repository if that is not acceptable.
 - The G1 evidence is preserved in `docs/deployment.md`: run `40731664293` passed
   with `class G1` while the ruleset was active. It is evidence, not the current
   class.
@@ -66,7 +70,10 @@ The target split:
 4. “Where can this GitHub App be installed?”: only this account.
 5. Create the App; note the **App ID**. Generate a **private key** and save it
    as `~/.config/invariant/app.pem` (`chmod 600`). Never commit it.
-6. Install the App on `gustavo-oo/invariant`; note the **installation ID**.
+6. Install the App on the repositories you want invariant to govern. This
+   deployment uses `gustavo-oo/invariant` and `gustavo-oo/giro-platform-v2`;
+   note the **installation ID**. The installation may include both because each
+   token is scoped to one repository below.
 7. Store the App credentials as repository secrets. The workflow mints the
    doctor token from them; there is no long-lived PAT:
    ```bash
@@ -133,15 +140,26 @@ node scripts/github-app-token.mjs --jwt-only \
   --private-key ~/.config/invariant/app.pem   # offline signing test
 ```
 
-Then mint an installation token and export it only for this shell session:
+Then mint an installation token scoped to the current repository and export it
+only for this shell session:
 
 ```bash
 export GH_TOKEN="$(node scripts/github-app-token.mjs \
-  --app-id <APP_ID> \
-  --installation-id <INSTALLATION_ID> \
+  --app-id 5514312 \
+  --installation-id 176268531 \
+  --repositories invariant \
   --private-key ~/.config/invariant/app.pem)"
 gh api /installation/repositories --jq '.repositories[].full_name'
-# must print gustavo-oo/invariant; /user is not available to installation tokens
+```
+
+For the other repository, use `--repositories giro-platform-v2`; the token must
+list only that repository. The App installation may contain both, but the
+private key remains installation-wide; see the note in the current state.
+
+```bash
+gh api /installation/repositories --jq '.repositories[].full_name'
+# must print only the repository named in --repositories; /user is not
+# available to installation tokens
 ```
 
 The token expires after about one hour; mint a new one for each session. Never
@@ -200,8 +218,9 @@ stored. The CI token is minted by the workflow from the two App secrets.
 ```bash
 export GITHUB_REPOSITORY=gustavo-oo/invariant
 export GH_TOKEN="$(node scripts/github-app-token.mjs \
-  --app-id "$INVARIANT_APP_ID" \
-  --installation-id "$INVARIANT_APP_INSTALLATION_ID" \
+  --app-id 5514312 \
+  --installation-id 176268531 \
+  --repositories invariant \
   --private-key "$HOME/.config/invariant/app.pem")"
 export INVARIANT_DOCTOR_TOKEN="$GH_TOKEN"
 scripts/enable-g1.sh --check     # must print class G1
@@ -224,7 +243,8 @@ INVARIANT_DOCTOR_TOKEN=... node packages/cli/dist/cli.js doctor --strict \
 
 ## Acceptance checklist
 
-- [ ] Clean shell has only the App installation token; `gh api user` is the bot.
+- [ ] Clean shell has only the App installation token;
+      `gh api /installation/repositories` lists only the scoped repo.
 - [ ] Ruleset active; required check `invariant-verdict`; `bypass_actors: []`.
 - [ ] CODEOWNERS lists only the human reviewer(s).
 - [ ] Classic branch protection restricts `main` pushes to the human.
@@ -257,23 +277,24 @@ docs/agent-identity-handoff.md before acting.
 
 Current state: public repo gustavo-oo/invariant; main has the deployment record
 and a G3 baseline; ruleset 26057771 is disabled; the legacy PAT secret was
-removed; the App secrets INVARIANT_APP_ID and INVARIANT_APP_PRIVATE_KEY are the
-standard and must be configured; PR #2 was merged; the G1 evidence is run
-40731664293. The current session's human gh accounts are not to be used.
+removed; App 5514312 (installation 176268531) is installed on invariant and
+giro-platform-v2; the App secrets are configured; each token is scoped to one
+repository; PR #2 was merged; the G1 evidence is run 40731664293. The current
+session's human gh accounts are not to be used.
 
-Goal: give the agent a separate GitHub App identity, keep the human as the only
-code owner/reviewer, re-enable the ruleset with no bypass actors, restrict main
-pushes to the human, prove the bot cannot approve or merge its own PR, then
+Goal: keep the agent on the separate GitHub App identity, keep the human as the
+only code owner/reviewer, re-enable the ruleset with no bypass actors, restrict
+main pushes to the human, prove the bot cannot approve or merge its own PR, then
 record a G1 baseline through a reviewed rule-change PR.
 
-Use only GH_TOKEN minted by scripts/github-app-token.mjs. Never run
-gh auth login/switch to a human account. The human performs all browser-only
-steps: creating/installing the App, adding the branch-protection allowlist,
-approving PRs and merging. Do not store the App private key or any token in the
-repository.
+Use only GH_TOKEN minted by scripts/github-app-token.mjs, with
+--repositories <current-repo-name>. Never run gh auth login/switch to a human
+account. The human performs all browser-only steps: adding the
+branch-protection allowlist, approving PRs and merging. Do not store the App
+private key or any token in the repository.
 
-Start with git status and npm test. Then follow Steps 5–7. Stop and ask the human
-for the App id, installation id and private-key path before minting the token.
+Start with git status and npm test. Then follow Steps 5–7 for the repository in
+scope. Do not operate on giro-platform-v2 without the human's authorization.
 Report the author of the smoke PR, the 422 from self-approval, the rejected
 direct push to main, and the final doctor --strict class.
 ```

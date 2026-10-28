@@ -94,6 +94,7 @@ describe("renderWorkflow", () => {
     expect(appToken?.with).toMatchObject({
       "app-id": "${{ env.INVARIANT_APP_ID }}",
       "private-key": "${{ env.INVARIANT_APP_PRIVATE_KEY }}",
+      repositories: "${{ github.event.repository.name }}",
     });
     const doctor = verdict.find((step) => step.run?.includes("doctor"));
     expect(doctor?.env?.INVARIANT_DOCTOR_TOKEN).toBe(

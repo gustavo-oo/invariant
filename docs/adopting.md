@@ -85,12 +85,20 @@ gh secret set INVARIANT_APP_PRIVATE_KEY --repo owner/repo \
   < ~/.config/invariant/app.pem
 ```
 
+One App can be installed on several repositories. The workflow scopes each
+token to `github.event.repository.name`; local minting uses
+`--repositories <repo-name>`. The private key remains installation-wide: if the
+same App (and key) is stored in two repositories, compromising either
+repository's Actions secrets can mint tokens for both. Use a separate App per
+repository when that blast radius is not acceptable.
+
 For a local run, mint the same token:
 
 ```bash
 export GH_TOKEN="$(node scripts/github-app-token.mjs \
   --app-id "$INVARIANT_APP_ID" \
   --installation-id "$INVARIANT_APP_INSTALLATION_ID" \
+  --repositories invariant \
   --private-key "$HOME/.config/invariant/app.pem")"
 export INVARIANT_DOCTOR_TOKEN="$GH_TOKEN"
 ```
@@ -148,6 +156,7 @@ ruleset is imported and the first green gate run.
    export INVARIANT_DOCTOR_TOKEN="$(node scripts/github-app-token.mjs \
      --app-id "$INVARIANT_APP_ID" \
      --installation-id "$INVARIANT_APP_INSTALLATION_ID" \
+     --repositories invariant \
      --private-key "$HOME/.config/invariant/app.pem")"
    ```
 3. In this repository, run the optional helper. It verifies the class and

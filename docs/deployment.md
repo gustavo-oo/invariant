@@ -81,10 +81,15 @@ allowlist, token minting and the acceptance checks — is in
 
 The G1 run `40731664293` and the G1 baseline were captured while the ruleset was
 active; they remain evidence, not the current class. The repository standard is
-a GitHub App: configure `INVARIANT_APP_ID` and `INVARIANT_APP_PRIVATE_KEY`, and
-the workflow mints the doctor token with `actions/create-github-app-token`. The
-legacy `INVARIANT_DOCTOR_TOKEN` PAT secret was removed. To restore G1, set the
-App secrets, re-enable the ruleset, provide a second reviewer (the ruleset
-requires one approval plus code-owner review), and run
-`scripts/enable-g1.sh --record`; merge the baseline through the rule-change
-path. The session's `gh` OAuth token was **not** stored.
+a GitHub App (App `5514312`, installation `176268531`), installed on
+`invariant` and `giro-platform-v2`. The two App secrets are configured. Each
+workflow mints a token scoped to `github.event.repository.name`; local minting
+uses `--repositories <name>`. The private key is installation-wide: if both
+repositories share the same App secrets, a compromise of either repository's
+Actions can mint tokens for both. Use a separate App for strict isolation.
+
+The legacy `INVARIANT_DOCTOR_TOKEN` PAT secret was removed. To restore G1,
+re-enable the ruleset, provide a reviewer (the ruleset requires one approval
+plus code-owner review), and run `scripts/enable-g1.sh --record`; merge the
+baseline through the rule-change path. The session's `gh` OAuth token was
+**not** stored.

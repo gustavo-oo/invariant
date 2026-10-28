@@ -10,10 +10,17 @@
  *   node scripts/github-app-token.mjs \
  *     --app-id 123456 \
  *     --installation-id 789012 \
+ *     --repositories invariant \
  *     --private-key ~/.config/invariant/app.pem
  *
  * Environment fallbacks:
- *   GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY_PATH
+ *   GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_REPOSITORIES,
+ *   GITHUB_APP_PRIVATE_KEY_PATH
+ *
+ * `--repositories` scopes the installation token to those repository names.
+ * Without it the token covers every repository selected for the installation.
+ * The App private key remains installation-wide; use separate Apps if that
+ * cross-repository blast radius is not acceptable.
  *
  * `--jwt-only` prints the signed JWT and makes no network call; use it to test
  * the private key and the clock without contacting GitHub.
@@ -26,6 +33,8 @@ const usage = `usage: node scripts/github-app-token.mjs [options]
 
   --app-id <id>             GitHub App id (or GITHUB_APP_ID)
   --installation-id <id>    installation id (or GITHUB_APP_INSTALLATION_ID)
+  --repositories <names>    comma-separated repo names to scope the token
+                            (or GITHUB_APP_REPOSITORIES)
   --private-key <path>      App private key PEM (or GITHUB_APP_PRIVATE_KEY_PATH)
   --jwt-only                print the signed JWT; do not call GitHub
   -h, --help                show this help
@@ -34,6 +43,7 @@ const usage = `usage: node scripts/github-app-token.mjs [options]
 const opts = {
   appId: process.env.GITHUB_APP_ID,
   installationId: process.env.GITHUB_APP_INSTALLATION_ID,
+  repositories: process.env.GITHUB_APP_REPOSITORIES,
   privateKey: process.env.GITHUB_APP_PRIVATE_KEY_PATH,
   jwtOnly: false,
 };
@@ -47,6 +57,10 @@ for (let i = 0; i < process.argv.length - 2; i += 1) {
       break;
     case "--installation-id":
       opts.installationId = process.argv[i + 3];
+      i += 1;
+      break;
+    case "--repositories":
+      opts.repositories = process.argv[i + 3];
       i += 1;
       break;
     case "--private-key":
@@ -99,6 +113,11 @@ if (opts.jwtOnly) {
   process.exit(0);
 }
 
+const repositories = (opts.repositories ?? "")
+  .split(",")
+  .map((name) => name.trim())
+  .filter((name) => name.length > 0);
+
 let response;
 try {
   response = await fetch(
@@ -108,8 +127,10 @@ try {
       headers: {
         Authorization: `Bearer ${jwt}`,
         Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
         "X-GitHub-Api-Version": "2022-11-28",
       },
+      body: JSON.stringify(repositories.length > 0 ? { repositories } : {}),
     },
   );
 } catch (error) {
