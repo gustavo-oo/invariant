@@ -13,6 +13,25 @@ import { toPosix } from "../../fsutil.js";
  */
 const MODIFIERS = new Set(["skip", "only", "todo", "concurrent", "fails", "skipIf", "runIf", "each"]);
 
+/** Playwright's `test.<hook>` calls are not test declarations. */
+const PLAYWRIGHT_HOOKS = new Set([
+  "beforeEach",
+  "afterEach",
+  "beforeAll",
+  "afterAll",
+  "use",
+  "step",
+  "configure",
+  "extend",
+  "info",
+]);
+
+/** Modifiers that can decorate a Playwright `test(...)` declaration. */
+const PLAYWRIGHT_TEST_MODIFIERS = new Set(["only", "skip", "fixme", "slow", "fail"]);
+
+/** Modifiers accepted on a Playwright `test.describe(...)` suite. */
+const PLAYWRIGHT_SUITE_MODIFIERS = new Set(["only", "skip", "serial", "parallel"]);
+
 /** Modifiers that make a call return the actual test/suite call (curried form). */
 const CURRIED_MODIFIERS = new Set(["each", "skipIf", "runIf"]);
 
@@ -72,6 +91,10 @@ interface Context {
   consumed: Set<number>;
   checks: DiscoveredCheck[];
   errors: DiscoveryError[];
+  /** The adapter that owns this discovery run. */
+  frameworkId: string;
+  /** Playwright's `test.describe` / hook shapes need their own classifier. */
+  playwright: boolean;
 }
 
 /**
@@ -94,11 +117,22 @@ export async function listTestFiles(root: string): Promise<string[]> {
   return files.sort();
 }
 
+export interface DiscoverOptions {
+  /** The adapter that owns the checks; defaults to `vitest`. */
+  frameworkId?: string;
+  /** Recognize `test.describe` and Playwright's hooks. */
+  playwright?: boolean;
+}
+
 /**
  * Discover one test file. Parse failures are returned as a `DiscoveryError` so a
  * single broken file never aborts the walk and never passes silently.
  */
-export function discoverTestFile(file: string, text: string): DiscoveryResult {
+export function discoverTestFile(
+  file: string,
+  text: string,
+  options: DiscoverOptions = {},
+): DiscoveryResult {
   const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) as SourceFileWithDiagnostics;
   const diagnostic = sourceFile.parseDiagnostics?.[0];
   if (diagnostic !== undefined) {
@@ -115,6 +149,8 @@ export function discoverTestFile(file: string, text: string): DiscoveryResult {
     consumed: new Set(),
     checks: [],
     errors: [],
+    frameworkId: options.frameworkId ?? "vitest",
+    playwright: options.playwright === true,
   };
   visit(sourceFile, [], context);
   reportFloatingTags(context);
@@ -129,7 +165,7 @@ function visit(node: ts.Node, suite: string[], context: Context): void {
   if (ts.isCallExpression(node)) {
     const shape = shapeOf(node);
     if (shape !== null) {
-      const classification = classify(shape);
+      const classification = classify(shape, context.playwright);
       if (classification.kind === "invalid") {
         reportInvalidShape(node, classification.shape, context);
         return;
@@ -197,7 +233,7 @@ function visitTest(node: ts.CallExpression, suite: string[], context: Context): 
     runtimeId: [...suite, title].join(" > "),
     line: lineOf(node, context.sourceFile) - 1,
   };
-  const check = toCheck(context.file, attached.tags, call, context.errors);
+  const check = toCheck(context.file, attached.tags, call, context.errors, context.frameworkId);
   if (check !== undefined) context.checks.push(check);
 }
 
@@ -246,7 +282,25 @@ function calleeChain(expression: ts.Expression): { base: string; modifiers: stri
   return { base: current.text, modifiers };
 }
 
-function classify(shape: CallShape): Classification {
+function classify(shape: CallShape, playwright = false): Classification {
+  if (playwright && shape.base === "test") {
+    if (shape.modifiers[0] === "describe") {
+      const rest = shape.modifiers.slice(1);
+      if (rest.includes("configure")) return { kind: "factory" };
+      if (rest.every((modifier) => PLAYWRIGHT_SUITE_MODIFIERS.has(modifier))) {
+        return { kind: "suite", shape: { ...shape, base: SUITE_BASE } };
+      }
+      return { kind: "factory" };
+    }
+    if (shape.modifiers.some((modifier) => PLAYWRIGHT_HOOKS.has(modifier))) {
+      return { kind: "factory" };
+    }
+    if (shape.modifiers.every((modifier) => PLAYWRIGHT_TEST_MODIFIERS.has(modifier))) {
+      return shape.curried ? { kind: "factory" } : { kind: "test", shape };
+    }
+    return { kind: "invalid", shape };
+  }
+
   const unique = new Set(shape.modifiers);
   if (unique.size !== shape.modifiers.length) return { kind: "invalid", shape };
   if (!shape.modifiers.every((modifier) => MODIFIERS.has(modifier))) return { kind: "invalid", shape };
@@ -424,6 +478,7 @@ function toCheck(
   tags: RawTags,
   call: TestCall,
   errors: DiscoveryError[],
+  frameworkId: string,
 ): DiscoveredCheck | undefined {
   // PEND-3: a discovered test declares exactly one check. Zero is an
   // undeclared test; two or more cannot be attributed without guessing.
@@ -456,7 +511,7 @@ function toCheck(
     testName: call.testName,
     file,
     line: call.line + 1,
-    frameworkId: "vitest",
+    frameworkId,
     runtimeId: call.runtimeId,
   };
   const negativeControl = tags.negativeControl[0];

@@ -1,4 +1,5 @@
 import type { Adapter } from "./api.js";
+import { playwrightAdapter } from "./playwright/index.js";
 import { vitestAdapter } from "./vitest/index.js";
 
 /**
@@ -6,7 +7,7 @@ import { vitestAdapter } from "./vitest/index.js";
  * concrete list; `findAdapter` is the lookup the discovery seam and the run
  * pipeline share.
  */
-const REGISTERED: readonly Adapter[] = [vitestAdapter];
+const REGISTERED: readonly Adapter[] = [vitestAdapter, playwrightAdapter];
 
 /** All registered adapters, as a copy so callers cannot mutate the registry. */
 export function adapters(): Adapter[] {

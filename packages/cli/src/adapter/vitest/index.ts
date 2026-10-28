@@ -2,6 +2,7 @@ import path from "node:path";
 import type { DiscoveredCheck, DiscoveryError, DiscoveryResult } from "../../discovery/types.js";
 import { readText } from "../../fsutil.js";
 import type { Adapter, CheckResult, RunOpts, SabotageSpec } from "../api.js";
+import { isPlaywrightFile } from "../detect.js";
 import { classifyFailureMessage } from "../failure.js";
 import { discoverTestFile, listTestFiles } from "./ast.js";
 import { readReports as readVitestReports } from "./report.js";
@@ -28,6 +29,9 @@ export const vitestAdapter: Adapter = {
         errors.push({ file, message: `could not read: ${messageOf(cause)}` });
         continue;
       }
+      // Mixed repos: Playwright specs import their own `test`; the Vitest AST
+      // would misread `test.describe` and report a fake discovery error.
+      if (isPlaywrightFile(text)) continue;
       const found = discoverTestFile(file, text);
       checks.push(...found.checks);
       errors.push(...found.errors);
