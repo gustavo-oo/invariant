@@ -32,7 +32,13 @@ interface Workflow {
       if?: string;
       needs?: string[];
       permissions?: Record<string, string>;
-      steps?: Array<{ uses?: string; run?: string; with?: Record<string, unknown> }>;
+      steps?: Array<{
+        id?: string;
+        uses?: string;
+        run?: string;
+        env?: Record<string, string>;
+        with?: Record<string, unknown>;
+      }>;
     }
   >;
 }
@@ -83,6 +89,17 @@ describe("renderWorkflow", () => {
     expect(negative).toContain("invariant-inputs/invariant-negative/negative-result.json");
 
     const verdict = yml.jobs["invariant-verdict"]?.steps ?? [];
+    const appToken = verdict.find((step) => step.uses === "actions/create-github-app-token@v1");
+    expect(appToken?.id).toBe("invariant-app-token");
+    expect(appToken?.with).toMatchObject({
+      "app-id": "${{ env.INVARIANT_APP_ID }}",
+      "private-key": "${{ env.INVARIANT_APP_PRIVATE_KEY }}",
+    });
+    const doctor = verdict.find((step) => step.run?.includes("doctor"));
+    expect(doctor?.env?.INVARIANT_DOCTOR_TOKEN).toBe(
+      "${{ steps.invariant-app-token.outputs.token }}",
+    );
+    expect(text).not.toContain("secrets.INVARIANT_DOCTOR_TOKEN");
     const download = verdict.find((step) => step.uses === "actions/download-artifact@v4");
     expect(download?.with).toMatchObject({
       path: "./invariant-inputs",

@@ -106,7 +106,7 @@ invariant init      [dir] --owner <@handle> [--adapter <id>] [--cli-setup <cmd>]
 | Class | Mechanism | Where it is available |
 |---|---|---|
 | **G1 — mechanical** | Required status check blocks merge; protected paths + code-owner review; the check is pinned to the expected App source; bypass disabled for admins | Public repo on Free, or GitHub Pro/Team on private |
-| **G2 — credential** | The agent's identity cannot write to `main` or the protected paths (fine-grained token, fork-based flow, human-only merge). The forge is not relied upon | Any plan, any visibility |
+| **G2 — credential** | The agent's identity cannot write to `main` or the protected paths (GitHub App token, fork-based flow, human-only merge). The forge is not relied upon | Any plan, any visibility |
 | **G3 — procedural** | The verdict is visible on the PR and a human acts on it. Weakest class; **must never be described as a guarantee** | Any plan, any visibility |
 
 `invariant doctor` observes the forge and reports the class actually in force.

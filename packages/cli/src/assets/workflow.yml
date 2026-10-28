@@ -117,6 +117,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    env:
+      INVARIANT_APP_ID: ${{ secrets.INVARIANT_APP_ID }}
+      INVARIANT_APP_PRIVATE_KEY: ${{ secrets.INVARIANT_APP_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -133,14 +136,23 @@ jobs:
           path: ./invariant-inputs
           pattern: invariant-*
           merge-multiple: true
-      # NOTE: INVARIANT_DOCTOR_TOKEN is an optional fine-grained PAT with
-      # Administration: read; GITHUB_TOKEN cannot read rulesets or branch
-      # protection. Its absence lowers the class honestly instead of failing the
-      # workflow, so this step must be able to run without the secret.
+      # The repository standard is a GitHub App, not a long-lived PAT. The App
+      # needs Administration: read + Metadata: read. Without its two secrets the
+      # token step is skipped and the doctor honestly reports observation:
+      # unavailable; the class decision stays in `verdict`, never in a workflow
+      # ignore.
+      - name: Mint the GitHub App token
+        id: invariant-app-token
+        if: ${{ env.INVARIANT_APP_ID != '' && env.INVARIANT_APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ env.INVARIANT_APP_ID }}
+          private-key: ${{ env.INVARIANT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
       - name: Observe branch protection
         continue-on-error: true
         env:
-          INVARIANT_DOCTOR_TOKEN: ${{ secrets.INVARIANT_DOCTOR_TOKEN }}
+          INVARIANT_DOCTOR_TOKEN: ${{ steps.invariant-app-token.outputs.token }}
         run: |
           __INVARIANT_CMD__ doctor --json --out invariant-doctor.json \
             --repo "${{ github.repository }}" --run-id "${{ github.run_id }}"

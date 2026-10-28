@@ -80,9 +80,11 @@ allowlist, token minting and the acceptance checks — is in
 [the agent identity handoff](agent-identity-handoff.md).
 
 The G1 run `40731664293` and the G1 baseline were captured while the ruleset was
-active; they remain evidence, not the current class. To restore G1, re-enable
-the ruleset, provide a second reviewer (the ruleset requires one approval plus
-code-owner review), run `scripts/enable-g1.sh --record`, and re-enable the
-baseline through the rule-change path. The session's `gh` OAuth token was
-**not** stored; the repository secret is the fine-grained PAT configured by the
-owner.
+active; they remain evidence, not the current class. The repository standard is
+a GitHub App: configure `INVARIANT_APP_ID` and `INVARIANT_APP_PRIVATE_KEY`, and
+the workflow mints the doctor token with `actions/create-github-app-token`. The
+legacy `INVARIANT_DOCTOR_TOKEN` PAT secret was removed. To restore G1, set the
+App secrets, re-enable the ruleset, provide a second reviewer (the ruleset
+requires one approval plus code-owner review), and run
+`scripts/enable-g1.sh --record`; merge the baseline through the rule-change
+path. The session's `gh` OAuth token was **not** stored.

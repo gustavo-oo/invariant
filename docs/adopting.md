@@ -62,18 +62,38 @@ embed the workflow through `workflow_call`, record the exact context in
 `.invariant/protection-baseline.json` (`expected.required_context`) so `doctor`
 verifies the name branch protection actually requires (PEND-5).
 
-## 3. Give the doctor an observation token
+## 3. Give the doctor an App token
 
-`doctor` needs a fine-grained personal access token with **Administration:
-read** and **Metadata: read**. The default `GITHUB_TOKEN` cannot read rulesets
-or branch protection. Store it as the repository secret
-`INVARIANT_DOCTOR_TOKEN`.
+The repository standard is a **GitHub App**, not a long-lived personal access
+token. Create/install an App with **Administration: read** and **Metadata:
+read** (the agent-identity App can be the same one), then store two repository
+secrets: `INVARIANT_APP_ID` and `INVARIANT_APP_PRIVATE_KEY`.
 
-The token is optional: without it, `doctor` still runs the offline CODEOWNERS
-and workflow checks, reports `observation: unavailable`, and lowers the class
-honestly. In CI the workflow marks the doctor step `continue-on-error`; the
-class decision belongs to `invariant-verdict`, never to a workflow-level
-ignore.
+The shipped workflow mints a short-lived installation token with
+`actions/create-github-app-token` and exposes it to the doctor as
+`INVARIANT_DOCTOR_TOKEN`. No PAT is stored. Without the two secrets the token
+step is skipped; `doctor` still runs the offline CODEOWNERS and workflow checks,
+reports `observation: unavailable`, and lowers the class honestly. In CI the
+doctor step is `continue-on-error`; the class decision belongs to
+`invariant-verdict`, never to a workflow-level ignore.
+
+Store the two secrets once:
+
+```bash
+gh secret set INVARIANT_APP_ID --repo owner/repo --body "<APP_ID>"
+gh secret set INVARIANT_APP_PRIVATE_KEY --repo owner/repo \
+  < ~/.config/invariant/app.pem
+```
+
+For a local run, mint the same token:
+
+```bash
+export GH_TOKEN="$(node scripts/github-app-token.mjs \
+  --app-id "$INVARIANT_APP_ID" \
+  --installation-id "$INVARIANT_APP_INSTALLATION_ID" \
+  --private-key "$HOME/.config/invariant/app.pem")"
+export INVARIANT_DOCTOR_TOKEN="$GH_TOKEN"
+```
 
 ## 4. Require code owners for the protected paths
 
@@ -118,22 +138,23 @@ G3 is honest and the ruleset still blocks merges. G1 is stronger because the
 doctor has **observed** the protection. This step is optional; do it after the
 ruleset is imported and the first green gate run.
 
-1. Create a fine-grained personal access token:
-   **Settings → Developer settings → Personal access tokens → Fine-grained
-   tokens**, scoped to this repository, with **Administration: read** and
-   **Metadata: read**. The default `GITHUB_TOKEN` cannot read rulesets or branch
-   protection.
-2. Export the repository and token in your shell (the token is not written to
-   disk by the script):
+1. Ensure the GitHub App from section 3 is installed with **Administration:
+   read** and **Metadata: read**, and that `INVARIANT_APP_ID` and
+   `INVARIANT_APP_PRIVATE_KEY` are configured. The workflow mints the CI token;
+   no PAT secret is required.
+2. For a local check, mint a short-lived App token and expose it to the helper:
    ```bash
    export GITHUB_REPOSITORY=owner/repo
-   export INVARIANT_DOCTOR_TOKEN=github_pat_...
+   export INVARIANT_DOCTOR_TOKEN="$(node scripts/github-app-token.mjs \
+     --app-id "$INVARIANT_APP_ID" \
+     --installation-id "$INVARIANT_APP_INSTALLATION_ID" \
+     --private-key "$HOME/.config/invariant/app.pem")"
    ```
-3. In this repository, run the optional helper. It verifies the class, stores
-   the secret if asked, and records the baseline:
+3. In this repository, run the optional helper. It verifies the class and
+   records the baseline when G1 is observed:
    ```bash
-   scripts/enable-g1.sh --check          # verify only; no secret, no baseline
-   scripts/enable-g1.sh --set-secret     # verify G1, store the secret, record
+   scripts/enable-g1.sh --check     # verify only; no baseline change
+   scripts/enable-g1.sh             # record .invariant/protection-baseline.json
    ```
    If you installed the CLI from npm instead, run the same two commands:
    ```bash
@@ -145,9 +166,10 @@ ruleset is imported and the first green gate run.
    disable the ruleset for this bootstrap commit, re-enable it immediately, and
    confirm `invariant doctor --strict` exits `0` with `class: G1`.
 
-The script never creates the PAT. It refuses to record a baseline unless the
+The script never creates a token. It refuses to record a baseline unless the
 doctor actually observed G1, so a missing permission cannot silently produce a
-G1 claim. This repository currently keeps the ruleset disabled for solo
+G1 claim. The CI token is the workflow's short-lived App installation token; no
+PAT is stored. This repository currently keeps the ruleset disabled for solo
 development, so the honest class is G3; re-enable the ruleset and provide a
 reviewer before recording G1. The helper remains ready for that switch.
 

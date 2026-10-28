@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Optional: verify and record a G1 baseline for invariant.
 #
-# This script never creates a GitHub token. Give it a fine-grained token with
-# Administration: read and Metadata: read in INVARIANT_DOCTOR_TOKEN. It verifies
-# the observation, and only writes the baseline after the class is G1.
+# This script never creates a GitHub token. Set INVARIANT_DOCTOR_TOKEN to a
+# short-lived GitHub App installation token (or another token) with
+# Administration: read and Metadata: read. It verifies the observation and only
+# writes the baseline after the class is G1. The CI token is minted by the
+# workflow from INVARIANT_APP_ID and INVARIANT_APP_PRIVATE_KEY; this script does
+# not store any secret.
 #
 # Usage:
 #   GITHUB_REPOSITORY=owner/repo \
-#   INVARIANT_DOCTOR_TOKEN=github_pat_... \
-#     scripts/enable-g1.sh [--check] [--set-secret]
+#   INVARIANT_DOCTOR_TOKEN=... \
+#     scripts/enable-g1.sh [--check]
 #
 #   --check       verify G1 but do not write .invariant/protection-baseline.json
-#   --set-secret  also store the token as INVARIANT_DOCTOR_TOKEN in the repo
 #
 # A baseline written by this script still has to go through a pull request:
 # `.invariant/` is a protected path.
@@ -19,16 +21,14 @@
 set -euo pipefail
 
 mode="record"
-set_secret=0
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 for arg in "$@"; do
   case "$arg" in
     --check) mode="check" ;;
-    --set-secret) set_secret=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "enable-g1: unknown argument: $arg" >&2; usage >&2; exit 2 ;;
   esac
@@ -42,15 +42,11 @@ if [ -z "$repo" ]; then
   exit 2
 fi
 if [ -z "$token" ]; then
-  echo "enable-g1: set INVARIANT_DOCTOR_TOKEN to a fine-grained token with Administration: read + Metadata: read" >&2
+  echo "enable-g1: set INVARIANT_DOCTOR_TOKEN to a short-lived App installation token with Administration: read + Metadata: read" >&2
   exit 2
 fi
 if ! command -v node >/dev/null 2>&1; then
   echo "enable-g1: node >= 20 is required" >&2
-  exit 2
-fi
-if ! command -v gh >/dev/null 2>&1; then
-  echo "enable-g1: gh is required for --set-secret and repository inspection" >&2
   exit 2
 fi
 
@@ -79,11 +75,6 @@ if [ "$class" != "G1" ]; then
 fi
 
 echo "enable-g1: G1 observed."
-
-if [ "$set_secret" -eq 1 ]; then
-  gh secret set INVARIANT_DOCTOR_TOKEN --repo "$repo" --body "$token" >/dev/null
-  echo "enable-g1: INVARIANT_DOCTOR_TOKEN stored on $repo."
-fi
 
 if [ "$mode" = "check" ]; then
   echo "enable-g1: check-only; baseline not changed."

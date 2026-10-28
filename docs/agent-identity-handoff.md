@@ -14,9 +14,11 @@ checks that prove the separation.
   currently has one human maintainer, and the ruleset requires an independent
   reviewer. The honest class is **G3 (procedural)**.
 - `.invariant/protection-baseline.json` records `recorded_class: G3`.
-- `INVARIANT_DOCTOR_TOKEN` is configured as a repository secret (fine-grained
-  PAT with **Administration: read** and **Metadata: read**). The secret value is
-  not readable after it is stored.
+- The repository standard is a GitHub App: the workflow mints the doctor token
+  from the repository secrets `INVARIANT_APP_ID` and
+  `INVARIANT_APP_PRIVATE_KEY`. The legacy `INVARIANT_DOCTOR_TOKEN` PAT secret
+  was removed; set the two App secrets before enabling the gate. The App id and
+  installation id are not secrets; the private key is.
 - The G1 evidence is preserved in `docs/deployment.md`: run `40731664293` passed
   with `class G1` while the ruleset was active. It is evidence, not the current
   class.
@@ -65,6 +67,15 @@ The target split:
 5. Create the App; note the **App ID**. Generate a **private key** and save it
    as `~/.config/invariant/app.pem` (`chmod 600`). Never commit it.
 6. Install the App on `gustavo-oo/invariant`; note the **installation ID**.
+7. Store the App credentials as repository secrets. The workflow mints the
+   doctor token from them; there is no long-lived PAT:
+   ```bash
+   gh secret set INVARIANT_APP_ID --repo gustavo-oo/invariant --body "<APP_ID>"
+   gh secret set INVARIANT_APP_PRIVATE_KEY --repo gustavo-oo/invariant \
+     < ~/.config/invariant/app.pem
+   ```
+   The App id is not a secret; the private key is. The installation id is only
+   needed for local token minting, not as a repository secret.
 
 The App is free for a public repository. It does not consume a seat.
 
@@ -167,7 +178,7 @@ askpass script; both must be the bot.
 
    Expect `HTTP 422`/“Can not approve your own pull request”.
 4. Confirm `invariant-verdict` runs on the bot PR. The branch is in the same
-   repository, so Actions can read `INVARIANT_DOCTOR_TOKEN`.
+   repository, so Actions can mint the doctor token from the App secrets.
 5. Confirm the bot cannot push to `main`:
 
    ```bash
@@ -181,15 +192,17 @@ askpass script; both must be the bot.
 
 ## Step 7 — record G1 with the new identity
 
-The ruleset must be active and the bot must be unable to approve itself. Use a
-token that can read rulesets:
-
-- the App token, if the App has **Administration: read**; or
-- the fine-grained PAT already stored as the repository secret.
+The ruleset must be active and the bot must be unable to approve itself. Use the
+App installation token (the App needs **Administration: read**); no PAT is
+stored. The CI token is minted by the workflow from the two App secrets.
 
 ```bash
 export GITHUB_REPOSITORY=gustavo-oo/invariant
-export INVARIANT_DOCTOR_TOKEN="<token with Administration: read>"
+export GH_TOKEN="$(node scripts/github-app-token.mjs \
+  --app-id "$INVARIANT_APP_ID" \
+  --installation-id "$INVARIANT_APP_INSTALLATION_ID" \
+  --private-key "$HOME/.config/invariant/app.pem")"
+export INVARIANT_DOCTOR_TOKEN="$GH_TOKEN"
 scripts/enable-g1.sh --check     # must print class G1
 scripts/enable-g1.sh --record    # writes recorded_class: G1
 ```
@@ -217,7 +230,7 @@ INVARIANT_DOCTOR_TOKEN=... node packages/cli/dist/cli.js doctor --strict \
 - [ ] Bot PR author is the bot; the bot gets 422 when approving its own PR.
 - [ ] Human approval is required; the human merges from the UI.
 - [ ] Bot direct push to `main` is rejected.
-- [ ] `invariant-verdict` runs on bot PRs and can read the secret.
+- [ ] `invariant-verdict` runs on bot PRs and can mint the App token.
 - [ ] G1 baseline recorded through a reviewed rule-change PR; `doctor --strict`
       reports G1.
 - [ ] No human token is present in the clean session.
@@ -242,9 +255,10 @@ You are continuing the invariant project in a clean session. Read
 docs/agent-identity-handoff.md before acting.
 
 Current state: public repo gustavo-oo/invariant; main has the deployment record
-and a G3 baseline; ruleset 26057771 is disabled; INVARIANT_DOCTOR_TOKEN is set;
-PR #2 was merged; the G1 evidence is run 40731664293. The current session's
-human gh accounts are not to be used.
+and a G3 baseline; ruleset 26057771 is disabled; the legacy PAT secret was
+removed; the App secrets INVARIANT_APP_ID and INVARIANT_APP_PRIVATE_KEY are the
+standard and must be configured; PR #2 was merged; the G1 evidence is run
+40731664293. The current session's human gh accounts are not to be used.
 
 Goal: give the agent a separate GitHub App identity, keep the human as the only
 code owner/reviewer, re-enable the ruleset with no bypass actors, restrict main
