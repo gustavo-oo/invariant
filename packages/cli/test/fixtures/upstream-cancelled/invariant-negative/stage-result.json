@@ -1,0 +1,11 @@
+{
+  "stage": "negative",
+  "job": "invariant-negative",
+  "exit_code": 0,
+  "findings": [],
+  "negative": {
+    "declared": 1,
+    "executed": false,
+    "findings": []
+  }
+}

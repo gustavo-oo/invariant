@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { run } from "./commands/run.js";
 import { validate } from "./commands/validate.js";
+import { verdict } from "./commands/verdict.js";
 import { EXIT, type ExitCode } from "./exit.js";
 import { defaultIo, type CliIo } from "./output.js";
 
@@ -15,8 +16,8 @@ invariant validate  [--root <dir>] [--base <ref>] [--event <path>] [--json] [--o
 invariant run       [--root <dir>] [--adapter <id>] [--reports <file>]... [--json] [--out <file>]
 invariant negative  [--root <dir>] [--json] [--out <file>]
 invariant verdict   --inputs <dir> [--job-status <job>=<result>]... [--doctor-result <file>]
-                    [--repo <owner/name>] [--run-id <id>] [--base <ref>] [--head <sha>]
-                    [--out <file>] [--comment <file>] [--json]
+                    [--repo <owner/name>] [--run-id <id>] [--baseline <file>]
+                    [--root <dir>] [--out <file>] [--comment <file>] [--base <ref>] [--head <sha>]
 invariant verify    [--root <dir>] [--adapter <id>] [--base <ref>] [--head <sha>] [--event <path>]
                     [--doctor-result <file>] [--repo <owner/name>] [--run-id <id>]
                     [--out <file>] [--comment <file>] [--json]
@@ -42,6 +43,7 @@ type Command = (argv: string[], io: CliIo) => Promise<ExitCode>;
 const COMMANDS: Record<string, Command> = {
   validate,
   run,
+  verdict,
 };
 
 export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<ExitCode> {
