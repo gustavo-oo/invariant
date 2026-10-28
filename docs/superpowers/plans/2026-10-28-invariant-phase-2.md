@@ -31,6 +31,10 @@
 | Scheduled full run | — |
 | Part B: multiple adapters, Playwright E2E, Vue+Fastify guide | — |
 
+## Execution status (branch `phase-2`)
+
+Tasks 1–9 and 11 are implemented and committed on `phase-2`. `npm test` is 369/369; `npm run dogfood` reports five green rules with `negative control: executed`; `invariant negative` reports 5/5 checks proven able to fail. Task 10's corpus and goldens are updated; the distinct `sabotage-not-applied` fixture is still pending. Tasks 12–14 (JUnit fallback, scheduled run, docs) and Part B remain.
+
 ## What changes on every surface
 
 | Surface | Phase 0/1 today | Phase 2 |
