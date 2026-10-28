@@ -137,5 +137,7 @@ npm run dogfood   # run invariant against this repository's own SELF rules
 ```
 
 Read the [design spec](docs/superpowers/specs/2026-10-17-invariant-design.md) and
-the [implementation plan](docs/superpowers/plans/2026-10-17-invariant-phase-0-1.md)
-for the full rationale, the Phase 2 boundary and the review focus.
+the [Phase 0 + Phase 1 plan](docs/superpowers/plans/2026-10-17-invariant-phase-0-1.md)
+for the delivered baseline, and the
+[Phase 2 plan](docs/superpowers/plans/2026-10-28-invariant-phase-2.md) for the
+executed negative control and the Vue 3 + Fastify adoption slice.
