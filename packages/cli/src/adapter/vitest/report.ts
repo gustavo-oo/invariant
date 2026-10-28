@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readText, toPosix } from "../../fsutil.js";
 import type { CheckResult } from "../api.js";
+import { readJunitXml } from "../junit/xml.js";
 
 /**
  * Order used when two assertions in the same file claim the same `runtimeId`: a
@@ -94,11 +95,24 @@ export function collectResults(json: unknown, root?: string): LocatedResult[] {
 export async function readReports(paths: string[], root: string): Promise<CheckResult[] | null> {
   for (const candidate of paths) {
     const file = path.isAbsolute(candidate) ? candidate : path.join(root, candidate);
+    let text: string;
     try {
-      return mapVitestJson(JSON.parse(await readText(file)) as unknown);
+      text = await readText(file);
     } catch {
       continue;
     }
+
+    // JSON first: a Vitest reporter payload. A JSON document that is not a
+    // Vitest report falls through to the JUnit reader.
+    try {
+      const json: unknown = JSON.parse(text);
+      if (isRecord(json) && Array.isArray(json.testResults)) return mapVitestJson(json);
+    } catch {
+      // Not JSON; try JUnit below.
+    }
+
+    const junit = readJunitXml(text);
+    if (junit !== null) return junit;
   }
   return null;
 }
