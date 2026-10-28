@@ -36,7 +36,7 @@ describe("planInit", () => {
       "invariant-example/limiter.test.ts",
       "invariant-example/limiter.ts",
       "rules/example.yaml",
-      "rules/flows/example.yaml",
+      "rules/flows/example-request.yaml",
     ]);
     expect(plan.findings).toEqual([]);
   });

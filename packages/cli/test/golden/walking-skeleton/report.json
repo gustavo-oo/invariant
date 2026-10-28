@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "invariant",
+    "version": "<version>"
+  },
+  "inputs": {
+    "mode": "local",
+    "base": null,
+    "head": null,
+    "repo": null,
+    "run_id": null
+  },
+  "guarantee": {
+    "class": "G3",
+    "class_reasons": [
+      "Branch-protection observation is unavailable, so the class cannot be G1.",
+      "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+    ],
+    "binding": false,
+    "negative_control": "declared-only",
+    "doctor": {
+      "ran": false,
+      "class": "G3",
+      "reasons": [
+        "Branch-protection observation is unavailable, so the class cannot be G1.",
+        "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+      ],
+      "findings": [],
+      "observation": "unavailable"
+    }
+  },
+  "registry": {
+    "files": [
+      "rules/example.yaml",
+      "rules/flows/example-request.yaml"
+    ],
+    "hashes": {
+      "rules/example.yaml": "sha256:6d276b3f5e8b561195bf3b3f67f7d2ce07c79c24fa81fdb10d9771fd143015b0",
+      "rules/flows/example-request.yaml": "sha256:be268302ddc679db4f8d7aaeaf79aec88634c6ca560602038ae269747430f4e9"
+    }
+  },
+  "immutability": {
+    "protected_paths_changed": [],
+    "flagged": false
+  },
+  "integrity": [],
+  "checks": [
+    {
+      "check_id": "example-request.completes",
+      "rule_ids": [],
+      "flow_refs": [
+        {
+          "flow": "example-request"
+        }
+      ],
+      "layer": "e2e",
+      "file": "invariant-example/limiter.test.ts",
+      "line": 16,
+      "runtime_id": "completes a request under the limit",
+      "verdict": "pass",
+      "reason": "check.passed",
+      "negative_control": {
+        "status": "not-executed"
+      }
+    },
+    {
+      "check_id": "example.rejects-over-limit",
+      "rule_ids": [
+        "EXAMPLE-001"
+      ],
+      "flow_refs": [
+        {
+          "flow": "example-request",
+          "step": "s1"
+        }
+      ],
+      "layer": "integration",
+      "file": "invariant-example/limiter.test.ts",
+      "line": 8,
+      "runtime_id": "rejects requests over the injected limit",
+      "verdict": "pass",
+      "reason": "check.passed",
+      "negative_control": {
+        "status": "not-executed"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "EXAMPLE-001",
+      "statement": "A request exceeding the injected limit MUST be rejected.",
+      "capability": "example",
+      "criticality": "critical",
+      "status": "enforced",
+      "verdict": "pass",
+      "reason": "check.passed",
+      "check_ids": [
+        "example.rejects-over-limit"
+      ],
+      "sabotage_verified": false
+    }
+  ],
+  "flows": [
+    {
+      "flow_id": "example-request",
+      "criticality": "critical",
+      "verdict": "pass",
+      "reason": "flow_passed",
+      "check_ids": [
+        "example-request.completes"
+      ],
+      "steps": [
+        {
+          "step_id": "s1",
+          "verdict": "pass",
+          "reason": "governing_rule_green",
+          "rule_ids": [
+            "EXAMPLE-001"
+          ]
+        }
+      ]
+    }
+  ],
+  "exit_code": 0
+}

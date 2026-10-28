@@ -46,7 +46,7 @@ const CODEOWNERS_START = "# >>> invariant >>>";
 
 const SKELETON = [
   "rules/example.yaml",
-  "rules/flows/example.yaml",
+  "rules/flows/example-request.yaml",
   "invariant-example/limiter.ts",
   "invariant-example/limiter.test.ts",
   "invariant-example/README.md",
