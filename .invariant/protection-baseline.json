@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "recorded_class": "G3",
+  "expected": {
+    "required_context": "invariant-verdict",
+    "required_context_app_id": 15368,
+    "protected_paths": [
+      "rules/",
+      ".invariant/",
+      ".github/workflows/invariant.yml",
+      ".github/CODEOWNERS"
+    ],
+    "bypass_actors": []
+  }
+}

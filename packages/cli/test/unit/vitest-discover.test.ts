@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { findAdapter } from "../../src/adapter/registry.js";
+import { listTestFiles } from "../../src/adapter/vitest/ast.js";
 import { makeTmpRepo } from "../helpers/fixture.js";
 
 const vitest = findAdapter("vitest")!;
 
 describe("vitest discovery", () => {
+  it("does not discover tagged tests inside a test/fixtures corpus", async () => {
+    const root = await makeTmpRepo({
+      "test/fixtures/demo/src/a.test.ts": "// @check x\n// @rule R-001\ntest('x', () => {});\n",
+      "src/a.test.ts": "// @check y\n// @rule R-002\ntest('y', () => {});\n",
+    });
+    expect(await listTestFiles(root)).toEqual(["src/a.test.ts"]);
+  });
+
   it("discovers tagged tests through the AST with suite-qualified runtime ids", async () => {
     const root = await makeTmpRepo({
       "src/sale.test.ts": `

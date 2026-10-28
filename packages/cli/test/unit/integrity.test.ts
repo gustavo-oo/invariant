@@ -114,7 +114,7 @@ describe("reconcile", () => {
         ]),
       ),
     ).toEqual(["integrity.duplicate_check_tag"]);
-    // @rule sales-004 (lower case) must not match SALES-004.
+    // rule sales-004 (lower case) must not match SALES-004.
     expect(codes(reg({ "SALES-004": ["sales.a"] }), disc([{ checkId: "sales.a", rules: ["sales-004"] }]))).toContain(
       "integrity.unknown_rule_id",
     );
@@ -184,7 +184,7 @@ describe("reconcile", () => {
     expect(codes(reg({ "SALES-004": ["sales.a"] }), disc([{ checkId: "sales.a", rules: ["SALES-004", "SALES-004"] }]))).toEqual([
       "integrity.duplicate_check_tag",
     ]);
-    // Two tests carrying the same @rule is how a rule gets several checks.
+    // Two tests carrying the same rule is how a rule gets several checks.
     expect(
       codes(
         reg({ "SALES-004": ["sales.a", "sales.b"] }),

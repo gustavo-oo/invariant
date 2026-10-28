@@ -1,0 +1,71 @@
+capability: self
+rules:
+  - id: SELF-001
+    statement: "The verifier MUST treat `not-run` as a failure for enforced rules."
+    rationale: "A check that never ran is not evidence that the rule holds."
+    criticality: normal
+    status: enforced
+    owners: ["@gustavopchaves"]
+    checks:
+      - id: self.not-run-fails
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: "createCheckRunner(adapter)"
+          sabotage: .invariant/sabotages/self/check-runner.ts
+
+  - id: SELF-002
+    statement: "A check MUST NOT exist without a rule."
+    rationale: "An orphan check hides which rule it is supposed to protect."
+    criticality: critical
+    status: enforced
+    owners: ["@gustavopchaves"]
+    checks:
+      - id: self.no-orphan-checks
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: "createDiscoverySource(config)"
+          sabotage: .invariant/sabotages/self/discovery-source.ts
+
+  - id: SELF-003
+    statement: "A rule change MUST NOT pass outside the flagged path."
+    rationale: "The registry is the gate; it must not be changed silently in a feature PR."
+    criticality: normal
+    status: enforced
+    owners: ["@gustavopchaves"]
+    checks:
+      - id: self.immutability
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: "createChangedFilesProvider()"
+          sabotage: .invariant/sabotages/self/changed-files.ts
+
+  - id: SELF-004
+    statement: "A sabotaged run MUST be classified before it counts as proof."
+    rationale: "A harness error or timeout is not evidence that the rule can fail."
+    criticality: normal
+    status: enforced
+    owners: ["@gustavopchaves"]
+    checks:
+      - id: self.proof-decision
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: "createSabotageSource(root)"
+          sabotage: .invariant/sabotages/self/sabotage-source.ts
+
+  - id: SELF-005
+    statement: "The verifier MUST NOT report a guarantee class the environment does not support."
+    rationale: "A G1 claim without observed protection is the one lie the product exists to prevent."
+    criticality: critical
+    status: enforced
+    owners: ["@gustavopchaves"]
+    checks:
+      - id: self.guarantee-class
+        layer: integration
+        negative_control:
+          kind: seam
+          seam: "createForgeProbe(config)"
+          sabotage: .invariant/sabotages/self/forge-probe.ts

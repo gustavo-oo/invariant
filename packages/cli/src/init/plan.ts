@@ -44,14 +44,20 @@ export interface InitPlan {
 const CODEOWNERS = ".github/CODEOWNERS";
 const CODEOWNERS_START = "# >>> invariant >>>";
 
-const SKELETON = [
-  "rules/example.yaml",
-  "rules/flows/example-request.yaml",
-  "invariant-example/limiter.ts",
-  "invariant-example/limiter.test.ts",
-  "invariant-example/README.md",
-  ".invariant/sabotages/example/limit-unbounded.ts",
-] as const;
+const SKELETON: ReadonlyArray<{ asset: string; target: string }> = [
+  { asset: "rules/example.yaml", target: "rules/example.yaml" },
+  { asset: "rules/flows/example-request.yaml", target: "rules/flows/example-request.yaml" },
+  { asset: "invariant-example/limiter.ts", target: "invariant-example/limiter.ts" },
+  {
+    asset: "invariant-example/limiter.test.ts.template",
+    target: "invariant-example/limiter.test.ts",
+  },
+  { asset: "invariant-example/README.md", target: "invariant-example/README.md" },
+  {
+    asset: ".invariant/sabotages/example/limit-unbounded.ts",
+    target: ".invariant/sabotages/example/limit-unbounded.ts",
+  },
+];
 
 const ASSETS = new URL("../assets/", import.meta.url);
 
@@ -60,9 +66,9 @@ export async function planInit(input: InitInput): Promise<InitPlan> {
   const findings: Finding[] = [];
 
   const skeleton = await Promise.all(
-    SKELETON.map(async (file) => [
-      file,
-      replaceAll(await readText(asset("walking-skeleton", file)), "__OWNER__", input.owner),
+    SKELETON.map(async (entry) => [
+      entry,
+      replaceAll(await readText(asset("walking-skeleton", entry.asset)), "__OWNER__", input.owner),
     ] as const),
   );
 
@@ -126,16 +132,16 @@ export async function planInit(input: InitInput): Promise<InitPlan> {
     { path: ".invariant/protection.ruleset.json", content: JSON.stringify(ruleset, null, 2) + "\n", mode: await modeFor(input.root, ".invariant/protection.ruleset.json", findings) },
   );
 
-  for (const [file, content] of skeleton) {
-    if (file === "rules/example.yaml" && (await exampleRuleExists(input.root))) {
-      writes.push({ path: file, content, mode: "skip" });
+  for (const [entry, content] of skeleton) {
+    if (entry.target === "rules/example.yaml" && (await exampleRuleExists(input.root))) {
+      writes.push({ path: entry.target, content, mode: "skip" });
       findings.push({
         code: "init.example_rule_exists",
         message: "rule EXAMPLE-001 already exists; the walking-skeleton rule was not written",
-        file,
+        file: entry.target,
       });
     } else {
-      writes.push({ path: file, content, mode: await modeFor(input.root, file, findings) });
+      writes.push({ path: entry.target, content, mode: await modeFor(input.root, entry.target, findings) });
     }
   }
 

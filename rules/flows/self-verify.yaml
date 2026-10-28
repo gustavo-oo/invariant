@@ -1,0 +1,18 @@
+flows:
+  - id: self-verify
+    name: "The verifier verifies itself"
+    owner: "@gustavopchaves"
+    criticality: critical
+    steps:
+      - id: s1
+        name: "not-run and orphan checks"
+        rules: [SELF-001, SELF-002]
+      - id: s2
+        name: "immutability"
+        rules: [SELF-003]
+      - id: s3
+        name: "proof and class"
+        rules: [SELF-004, SELF-005]
+    checks:
+      - id: self-verify.runs
+        layer: e2e

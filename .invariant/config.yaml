@@ -1,0 +1,17 @@
+adapter: vitest
+scope:
+  mode: advisory
+skill:
+  distribution: manifest-only
+doctor:
+  apiUrl: https://api.github.com
+  tokenEnv: INVARIANT_DOCTOR_TOKEN
+  expectedAppId: 15368
+ruleChange:
+  label: invariant:rule-change
+credentialBoundary: none
+protectedPaths:
+  - rules/
+  - .invariant/
+  - .github/workflows/invariant.yml
+  - .github/CODEOWNERS

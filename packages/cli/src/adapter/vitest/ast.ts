@@ -497,11 +497,23 @@ async function walk(root: string, directory: string, into: string[]): Promise<vo
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (entry.name.startsWith(".") || SKIP_DIRECTORIES.has(entry.name)) continue;
+      const relative = toPosix(path.relative(root, path.join(directory, entry.name)));
+      if (isFixtureTree(relative)) continue;
       await walk(root, path.join(directory, entry.name), into);
     } else if (entry.isFile() && TEST_FILE.test(entry.name)) {
       into.push(toPosix(path.relative(root, path.join(directory, entry.name))));
     }
   }
+}
+
+/**
+ * A project's fixture corpus contains test-shaped files, but they are data for
+ * the plugin's own tests, not checks of the project. The Vitest config already
+ * excludes `test/fixtures`; discovery must agree or a dogfood run sees every
+ * fixture's tags as an orphan.
+ */
+function isFixtureTree(relative: string): boolean {
+  return relative === "test/fixtures" || relative.endsWith("/test/fixtures");
 }
 
 function isNotFound(cause: unknown): boolean {

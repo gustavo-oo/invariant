@@ -1,6 +1,3 @@
-// @check self.guarantee-class
-// @rule SELF-005
-// @flow self-verify/s3
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config/load.js";
 import { defaultBaseline } from "../../src/doctor/baseline.js";
@@ -10,6 +7,9 @@ import { createForgeProbe } from "../../src/seams/forge-probe.js";
 import { makeTmpRepo } from "../helpers/fixture.js";
 
 describe("SELF-005", () => {
+  // @check self.guarantee-class
+  // @rule SELF-005
+  // @flow self-verify/s3
   it("never claims a guarantee class the environment does not support", async () => {
     const root = await makeTmpRepo({});
     const { config } = await loadConfig(root);
