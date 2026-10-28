@@ -1,52 +1,70 @@
 /**
- * `invariant negative` — spec §8 stage 6 in declaration form.
+ * `invariant negative` — spec §8 stage 6, executed.
  *
- * This delivery executes no sabotage (PEND-1), so the command's first line says
- * so and the artifact records `executed: false`. What it can check is the
- * declaration: every enforced rule's check names a sabotage file, the file
- * exists, declares exactly one `@seam-alias`, and that alias names an existing
- * file in the repo other than the sabotage itself.
+ * The command discovers the checks, reconciles them with the registry, validates
+ * every enforced check's sabotage declaration, and then runs the negative
+ * control: one isolated sandbox per check, the declared seam module replaced by
+ * the sabotage, the check executed, the failure classified. A rule is proven
+ * only by an `applied` + `assertion` outcome; a no-op, harness error or timeout
+ * is a product red (exit 1); an unexecutable stage is a gate error (exit 2).
  *
- * The machine artifact is `{declared, executed, findings}` because `verdict`
- * consumes that shape from `negative-result.json` (R50). The human form is the
- * notice, the count, then one line per finding. An invalid registry is a gate
- * error before any declaration is examined, just as in `run`/`validate`.
+ * The machine artifact is `{declared, executed, outcomes, findings}` so
+ * `verdict` can roll the same facts up without re-running anything. The human
+ * form is one summary line, the declared count, then one line per finding.
  */
 import path from "node:path";
+import { findAdapter } from "../adapter/registry.js";
 import { loadConfig } from "../config/load.js";
 import { EXIT, type ExitCode } from "../exit.js";
 import { checkDeclared } from "../negative/declared.js";
+import { runNegativeControl } from "../negative/execute.js";
 import { stringifyJson, writeOut, type CliIo } from "../output.js";
+import { reconcile } from "../registry/integrity.js";
 import { loadRegistry } from "../registry/load.js";
 import type { Finding, Registry } from "../registry/model.js";
 import { validateRegistry } from "../registry/validate.js";
+import { createDiscoverySource } from "../seams/discovery-source.js";
+import { isProof } from "../verdict/proof.js";
+import type { SabotageOutcome } from "../verdict/types.js";
 
-const NOTICE =
-  "negative control: declared-only — seam sabotage is NOT executed in this delivery (Phase 2)";
+const EXECUTED = "negative control: executed — ";
+const NOT_EXECUTED = "negative control: not executed — ";
 
-const HELP = `invariant negative - validate every enforced rule's declared sabotage
+const HELP = `invariant negative - execute every enforced rule's declared sabotage
 
 Usage:
-  invariant negative [--root <dir>] [--json] [--out <file>]
+  invariant negative [--root <dir>] [--adapter <id>] [--json] [--out <file>]
 
 Options:
       --root <dir>    Repository root (default: the current directory).
-      --json          Emit {"declared": <n>, "executed": false, "findings": Finding[]}.
+      --adapter <id>  Override the configured test-framework adapter.
+      --json          Emit {"declared": <n>, "executed": <bool>, "outcomes": {...}, "findings": Finding[]}.
       --out <file>    Write the output to a file instead of printing it.
   -h, --help          Print this help.
 
-The first human line is always:
-  negative control: declared-only — seam sabotage is NOT executed in this delivery (Phase 2)
+The first human line is one of:
+  negative control: executed — <proven>/<declared> checks proven able to fail
+  negative control: not executed — <reason>
 
 Exit codes:
-  0  Every enforced check has a complete sabotage declaration.
-  2  The registry is invalid or a declaration is incomplete.
+  0  Every enforced check is an applied, assertion-classified failure under sabotage.
+  1  An enforced check is not proven (no-op, harness error or timeout).
+  2  The registry/config is invalid, discovery or integrity failed, a declaration
+     is incomplete, or the adapter could not run.
 `;
 
 interface Options {
   root: string;
+  adapter: string | null;
   json: boolean;
   out: string | null;
+}
+
+interface Artifact {
+  declared: number;
+  executed: boolean;
+  outcomes: Record<string, SabotageOutcome>;
+  findings: Finding[];
 }
 
 export async function negative(argv: string[], io: CliIo): Promise<ExitCode> {
@@ -55,31 +73,136 @@ export async function negative(argv: string[], io: CliIo): Promise<ExitCode> {
   const options = parsed.options;
 
   const { config, findings: configFindings } = await loadConfig(options.root);
+  const effectiveConfig = options.adapter === null ? config : { ...config, adapter: options.adapter };
   const { registry, findings: registryFindings } = await loadRegistry(options.root);
   const declared = declaredChecks(registry);
 
   const invalid = [
     ...configFindings,
     ...registryFindings,
-    ...validateRegistry(registry, { cwd: options.root, config }),
+    ...validateRegistry(registry, { cwd: options.root, config: effectiveConfig }),
   ];
-  const findings = invalid.length > 0 ? invalid : await checkDeclared(registry, options.root);
+  if (invalid.length > 0) {
+    return emit(io, options, artifactOf(declared, false, new Map(), invalid), `${NOT_EXECUTED}the registry is invalid`, EXIT.GATE_BROKEN);
+  }
+  if (declared === 0) {
+    return emit(io, options, artifactOf(0, true, new Map(), []), `${EXECUTED}0/0 checks proven able to fail`, EXIT.GREEN);
+  }
 
-  const artifact = { declared, executed: false, findings };
+  const discovery = await createDiscoverySource(effectiveConfig).discover(options.root);
+  const integrity = reconcile(registry, discovery);
+  if (integrity.length > 0) {
+    return emit(
+      io,
+      options,
+      artifactOf(declared, false, new Map(), integrity),
+      `${NOT_EXECUTED}discovery or integrity failed`,
+      EXIT.GATE_BROKEN,
+    );
+  }
+
+  const declaration = await checkDeclared(registry, options.root);
+  if (declaration.length > 0) {
+    return emit(
+      io,
+      options,
+      artifactOf(declared, false, new Map(), declaration),
+      `${NOT_EXECUTED}the declared sabotage is incomplete`,
+      EXIT.GATE_BROKEN,
+    );
+  }
+
+  const adapter = findAdapter(effectiveConfig.adapter);
+  if (adapter === undefined) {
+    const finding: Finding = {
+      code: "negative.adapter_missing",
+      message: `unknown adapter: ${effectiveConfig.adapter}`,
+      file: ".invariant/config.yaml",
+    };
+    return emit(
+      io,
+      options,
+      artifactOf(declared, false, new Map(), [finding]),
+      `${NOT_EXECUTED}unknown adapter: ${effectiveConfig.adapter}`,
+      EXIT.GATE_BROKEN,
+    );
+  }
+
+  const run = await runNegativeControl({
+    registry,
+    root: options.root,
+    adapters: [adapter],
+    discovered: discovery.checks,
+  });
+  const artifact = artifactOf(run.declared, run.executed, run.outcomes, [...run.errors, ...run.findings]);
+
+  if (run.errors.length > 0) {
+    return emit(
+      io,
+      options,
+      artifact,
+      `${NOT_EXECUTED}${run.errors[0]?.message ?? "the negative control could not run"}`,
+      EXIT.GATE_BROKEN,
+    );
+  }
+
+  const proven = [...run.outcomes.values()].filter(isProof).length;
+  const code = proven === run.declared && run.findings.length === 0 ? EXIT.GREEN : EXIT.PRODUCT_BROKEN;
+  return emit(
+    io,
+    options,
+    artifact,
+    `${EXECUTED}${proven}/${run.declared} checks proven able to fail`,
+    code,
+  );
+}
+
+function emit(
+  io: CliIo,
+  options: Options,
+  artifact: Artifact,
+  firstLine: string,
+  code: ExitCode,
+): ExitCode {
   if (options.json) {
     const text = stringifyJson(artifact);
     if (options.out !== null) writeOut(options.out, text, io);
     else io.stdout(text);
-  } else {
-    const human = `${NOTICE}\n${declaredLine(declared)}${findingsText(findings)}`;
-    if (options.out !== null) writeOut(options.out, human, io);
-    else {
-      io.stdout(`${NOTICE}\n${declaredLine(declared)}`);
-      if (findings.length > 0) io.stderr(findingsText(findings));
-    }
+    return code;
   }
 
-  return findings.length > 0 ? EXIT.GATE_BROKEN : EXIT.GREEN;
+  const human = `${firstLine}\n${declaredLine(artifact.declared)}${findingsText(artifact.findings)}`;
+  if (options.out !== null) {
+    writeOut(options.out, human, io);
+    return code;
+  }
+
+  io.stdout(`${firstLine}\n${declaredLine(artifact.declared)}`);
+  if (artifact.findings.length > 0) io.stderr(findingsText(artifact.findings));
+  return code;
+}
+
+function artifactOf(
+  declared: number,
+  executed: boolean,
+  outcomes: Map<string, SabotageOutcome>,
+  findings: Finding[],
+): Artifact {
+  return { declared, executed, outcomes: sortedOutcomes(outcomes), findings };
+}
+
+/** JSON object order is part of the golden; sort by check id. */
+function sortedOutcomes(outcomes: Map<string, SabotageOutcome>): Record<string, SabotageOutcome> {
+  const result: Record<string, SabotageOutcome> = {};
+  for (const key of [...outcomes.keys()].sort(compare)) {
+    const value = outcomes.get(key);
+    if (value !== undefined) result[key] = value;
+  }
+  return result;
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function declaredChecks(registry: Registry): number {
@@ -106,6 +229,7 @@ function parseArgs(
   io: CliIo,
 ): { kind: "ok"; options: Options } | { kind: "exit"; code: ExitCode } {
   let root = io.cwd;
+  let adapter: string | null = null;
   let json = false;
   let out: string | null = null;
 
@@ -121,6 +245,7 @@ function parseArgs(
         json = true;
         break;
       case "--root":
+      case "--adapter":
       case "--out": {
         const value = argv[index + 1];
         if (value === undefined) {
@@ -129,6 +254,7 @@ function parseArgs(
         }
         index += 1;
         if (arg === "--root") root = path.resolve(io.cwd, value);
+        else if (arg === "--adapter") adapter = value;
         else out = value;
         break;
       }
@@ -138,5 +264,5 @@ function parseArgs(
     }
   }
 
-  return { kind: "ok", options: { root, json, out } };
+  return { kind: "ok", options: { root, adapter, json, out } };
 }

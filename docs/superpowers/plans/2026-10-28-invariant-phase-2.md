@@ -574,7 +574,7 @@ A check whose `frameworkId` has no adapter is `negative.execution_failed` (exit 
 - Exit: `0` every declared check is an `applied/assertion`; `1` a non-proof outcome (product red); `2` invalid registry/config, an orphan enforced check, a broken declaration, an unknown adapter or a sandbox/execution error.
 - The declaration checks run first; an invalid declaration never executes a run. The help text must be updated too (it still documents `executed: false`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/cli/test/integration/negative-cli.test.ts
@@ -595,19 +595,19 @@ it("marks a no-op sabotage as a product red", async () => {
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd packages/cli && npm run build && npx vitest run test/integration/negative-cli.test.ts` → FAIL (the command still prints declared-only).
 
-- [ ] **Step 3: Implement the command**
+- [x] **Step 3: Implement the command**
 
 Replace `NOTICE` with the dynamic first line. Resolve the adapter(s) with `findAdapter`; an unknown adapter is exit 2. Call `runNegativeControl`; write the artifact; print findings on stderr; return `EXIT.PRODUCT_BROKEN` for non-proof findings and `EXIT.GATE_BROKEN` for `errors`. The `--json` output is the artifact, not the human line.
 
-- [ ] **Step 4: Update the three fixtures**
+- [x] **Step 4: Update the fixture tests**
 
-Update `healthy-registry`'s test in this task: import `policy` and assert `policy().available() === 1`, so the sabotage's `Infinity` is an assertion failure rather than an unused module. Update `sabotage-does-not-compile`'s test the same way, so the invalid replacement is actually loaded. `no-op-sabotage` keeps its unused seam and expects exit 1. `sabotage-missing-alias` stays exit 2. Update `negative-cli.test.ts`'s old `NOTICE` assertion and `test/golden/sabotage-missing-alias/stdout.txt` to the new first line; add an orphan-enforced-check case that expects exit 2. Run the integration test → PASS.
+Update `healthy-registry`'s test in this task: import `policy` and assert `policy().available() === 1`, so the sabotage's `Infinity` is an assertion failure rather than an unused module. Update `sabotage-does-not-compile`'s test the same way, so the invalid replacement is actually loaded. Add a tagged test and a seam to `sabotage-missing-alias` so discovery/reconcile pass and the missing alias is the failure under test. `no-op-sabotage` keeps its unused seam and expects exit 1. Update `negative-cli.test.ts`'s old `NOTICE` assertion and `test/golden/sabotage-missing-alias/stdout.txt` to the new first line. Run the integration test → PASS (6 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git add -A && git commit -m "feat(negative): execute declared sabotages, artifact outcomes, honest exit codes"`
 

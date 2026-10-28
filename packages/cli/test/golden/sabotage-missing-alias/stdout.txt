@@ -1,2 +1,2 @@
-negative control: declared-only — seam sabotage is NOT executed in this delivery (Phase 2)
+negative control: not executed — the declared sabotage is incomplete
 declared: 1 checks

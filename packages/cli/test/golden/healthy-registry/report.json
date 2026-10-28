@@ -52,7 +52,7 @@
       "flow_refs": [],
       "layer": "integration",
       "file": "src/checkout.test.ts",
-      "line": 7,
+      "line": 8,
       "runtime_id": "sales > is rejected when stock is insufficient",
       "verdict": "pass",
       "reason": "check.passed",
