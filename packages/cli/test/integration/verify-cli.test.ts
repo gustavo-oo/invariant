@@ -2,9 +2,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { commitAll, makeGitRepo, makeTmpRepo } from "../helpers/fixture.js";
+import { commitAll, makeGitRepo, makeTmpRepo, makeVitestRepo } from "../helpers/fixture.js";
 import { expectGolden, normalizeReport } from "../helpers/goldens.js";
-import { linkNodeModules } from "../helpers/node-modules.js";
 import { capability } from "../helpers/registry.js";
 import { runFixture, spawnCli } from "../helpers/run-cli.js";
 
@@ -296,7 +295,7 @@ describe("invariant verify", () => {
     // The diff needs real history, so the fixture's files are committed here and
     // the rule is amended on top (the same shape as the immutability tests).
     const { root, baseSha } = await makeGitRepo(await healthyFiles());
-    await linkNodeModules(root);
+    await makeVitestRepo({}, { into: root });
     const rule = await readFile(path.join(root, "rules/sales.yaml"), "utf8");
     await writeFile(path.join(root, "rules/sales.yaml"), rule.replace("Prevents overselling.", "Prevents overselling at any price."), "utf8");
     await commitAll(root, "amend the rule");

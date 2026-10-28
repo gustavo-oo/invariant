@@ -3,23 +3,43 @@ import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { linkNodeModules } from "./node-modules.js";
 
 const execFileAsync = promisify(execFile);
 
 /**
  * Write `files` (repo-relative path -> content) into a fresh temporary
  * directory and return the **realpath** of its root, so macOS's
- * `/private/var/...` prefix never leaks into an assertion. Later tasks extend
- * this into richer fixtures.
+ * `/private/var/...` prefix never leaks into an assertion.
  */
 export async function makeTmpRepo(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "invariant-repo-"));
+  await writeFiles(root, files);
+  return await realpath(root);
+}
+
+/**
+ * A temporary repo whose tests can actually run under Vitest offline: the
+ * `makeTmpRepo` semantics plus a `node_modules` link to the workspace install,
+ * so no copy and no install step. `into` writes into an existing root (the
+ * idempotency case); without it a fresh temp directory is created.
+ */
+export async function makeVitestRepo(
+  files: Record<string, string>,
+  opts: { into?: string } = {},
+): Promise<string> {
+  const root = opts.into ?? (await mkdtemp(path.join(tmpdir(), "invariant-repo-")));
+  await writeFiles(root, files);
+  await linkNodeModules(root);
+  return await realpath(root);
+}
+
+async function writeFiles(root: string, files: Record<string, string>): Promise<void> {
   for (const [relative, content] of Object.entries(files)) {
     const target = path.join(root, relative);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, content, "utf8");
   }
-  return await realpath(root);
 }
 
 /**

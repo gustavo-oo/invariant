@@ -3,8 +3,7 @@ import { symlink } from "node:fs/promises";
 import { findAdapter } from "../../src/adapter/registry.js";
 import { mapVitestJson, readReports } from "../../src/adapter/vitest/report.js";
 import { runChecks } from "../../src/adapter/vitest/run.js";
-import { makeTmpRepo } from "../helpers/fixture.js";
-import { makeVitestRepo } from "../helpers/vitest-repo.js";
+import { makeTmpRepo, makeVitestRepo } from "../helpers/fixture.js";
 
 it("classifies pass, fail and retried-pass(flaky) from the reporter payload", () => {
   expect(
