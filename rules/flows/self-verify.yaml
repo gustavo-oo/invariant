@@ -1,7 +1,7 @@
 flows:
   - id: self-verify
     name: "The verifier verifies itself"
-    owner: "@gustavopchaves"
+    owner: "@gustavo-oo"
     criticality: critical
     steps:
       - id: s1

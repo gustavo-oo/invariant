@@ -1,6 +1,6 @@
 # >>> invariant >>>
-/rules/ @gustavopchaves
-/.invariant/ @gustavopchaves
-/.github/workflows/invariant.yml @gustavopchaves
-/.github/CODEOWNERS @gustavopchaves
+/rules/ @gustavo-oo
+/.invariant/ @gustavo-oo
+/.github/workflows/invariant.yml @gustavo-oo
+/.github/CODEOWNERS @gustavo-oo
 # <<< invariant <<<

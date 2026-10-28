@@ -5,7 +5,7 @@ rules:
     rationale: "A check that never ran is not evidence that the rule holds."
     criticality: normal
     status: enforced
-    owners: ["@gustavopchaves"]
+    owners: ["@gustavo-oo"]
     checks:
       - id: self.not-run-fails
         layer: unit
@@ -19,7 +19,7 @@ rules:
     rationale: "An orphan check hides which rule it is supposed to protect."
     criticality: critical
     status: enforced
-    owners: ["@gustavopchaves"]
+    owners: ["@gustavo-oo"]
     checks:
       - id: self.no-orphan-checks
         layer: unit
@@ -33,7 +33,7 @@ rules:
     rationale: "The registry is the gate; it must not be changed silently in a feature PR."
     criticality: normal
     status: enforced
-    owners: ["@gustavopchaves"]
+    owners: ["@gustavo-oo"]
     checks:
       - id: self.immutability
         layer: unit
@@ -47,7 +47,7 @@ rules:
     rationale: "A harness error or timeout is not evidence that the rule can fail."
     criticality: normal
     status: enforced
-    owners: ["@gustavopchaves"]
+    owners: ["@gustavo-oo"]
     checks:
       - id: self.proof-decision
         layer: unit
@@ -61,7 +61,7 @@ rules:
     rationale: "A G1 claim without observed protection is the one lie the product exists to prevent."
     criticality: critical
     status: enforced
-    owners: ["@gustavopchaves"]
+    owners: ["@gustavo-oo"]
     checks:
       - id: self.guarantee-class
         layer: integration
