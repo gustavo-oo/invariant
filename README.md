@@ -115,6 +115,13 @@ missing code-owner rule or a growing bypass list lowers the class; it is never
 silently ignored. Record the observed environment with
 `invariant doctor --record`; `verdict` gates a regression against that baseline.
 
+## Live instance
+
+The public dogfood repository is <https://github.com/gustavo-oo/invariant>. Its
+[deployment record](docs/deployment.md) includes the imported protection
+ruleset and the red-PR evidence. The gate is active; the class remains G3 until
+the repository owner adds the `INVARIANT_DOCTOR_TOKEN` secret.
+
 ## Development
 
 ```bash
