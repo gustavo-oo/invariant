@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { run } from "./commands/run.js";
 import { doctor } from "./commands/doctor.js";
+import { init } from "./commands/init.js";
 import { negative } from "./commands/negative.js";
 import { validate } from "./commands/validate.js";
 import { verdict } from "./commands/verdict.js";
@@ -50,6 +51,7 @@ const COMMANDS: Record<string, Command> = {
   verdict,
   verify,
   doctor,
+  init,
 };
 
 export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<ExitCode> {

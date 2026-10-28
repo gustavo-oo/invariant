@@ -1,0 +1,15 @@
+capability: example
+rules:
+  - id: EXAMPLE-001
+    statement: "A request exceeding the injected limit MUST be rejected."
+    rationale: "The injected policy is the contract with the caller."
+    criticality: critical
+    status: enforced
+    owners: ["__OWNER__"]
+    checks:
+      - id: example.rejects-over-limit
+        layer: integration
+        negative_control:
+          kind: seam
+          seam: "createLimiter({ policy })"
+          sabotage: .invariant/sabotages/example/limit-unbounded.ts

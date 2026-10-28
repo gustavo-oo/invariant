@@ -1,0 +1,13 @@
+adapter: __ADAPTER__
+scope:
+  mode: advisory
+skill:
+  distribution: manifest-only
+doctor:
+  apiUrl: https://api.github.com
+  tokenEnv: INVARIANT_DOCTOR_TOKEN
+  expectedAppId: __APP_ID__
+ruleChange:
+  label: invariant:rule-change
+credentialBoundary: none
+protectedPaths: __PROTECTED_PATHS__

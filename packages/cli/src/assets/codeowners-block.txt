@@ -1,0 +1,6 @@
+# >>> invariant >>>
+/rules/ __OWNER__
+/.invariant/ __OWNER__
+/.github/workflows/invariant.yml __OWNER__
+/.github/CODEOWNERS __OWNER__
+# <<< invariant <<<

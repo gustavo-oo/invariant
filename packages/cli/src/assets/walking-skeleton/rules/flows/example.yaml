@@ -1,0 +1,12 @@
+flows:
+  - id: example-request
+    name: "A request completes through the limiter"
+    owner: "__OWNER__"
+    criticality: critical
+    steps:
+      - id: s1
+        name: "Reject over-limit requests"
+        rules: [EXAMPLE-001]
+    checks:
+      - id: example-request.completes
+        layer: e2e
