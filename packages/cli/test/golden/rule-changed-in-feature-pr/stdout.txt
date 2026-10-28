@@ -1,0 +1,1 @@
+rules/sales.yaml immutability.protected_path_changed protected path changed without the "invariant:rule-change" label: rules/sales.yaml
