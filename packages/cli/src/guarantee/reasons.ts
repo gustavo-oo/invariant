@@ -39,6 +39,12 @@ export function classMeaning(cls: GuaranteeClass): string {
   }
 }
 
+export const CLASS_MECHANISM: Record<GuaranteeClass, string> = {
+  G1: "observed",
+  G2: "declared",
+  G3: "procedural",
+};
+
 export const MECHANISM_LABEL: Record<"ruleset" | "branch-protection" | "none", string> = {
   ruleset: "ruleset",
   "branch-protection": "classic branch protection",

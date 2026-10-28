@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExitCode } from "../../src/exit.js";
+import type { DoctorResult } from "../../src/commands/doctor.js";
+import type { Baseline } from "../../src/doctor/baseline.js";
 import type { Report } from "../../src/report/shape.js";
 import { isReport } from "./goldens.js";
 import { linkNodeModules } from "./node-modules.js";
@@ -29,6 +31,10 @@ export interface FixtureRun {
   report: Report | null;
   /** Contents of `invariant-comment.md`, when the run produced one. */
   comment: string | null;
+  /** Parsed `invariant-doctor.json`, when the run produced one. */
+  doctor: DoctorResult | null;
+  /** Parsed `.invariant/protection-baseline.json`, when the run produced one. */
+  baseline: Baseline | null;
   /** Real path of the copied fixture that was used as the working directory. */
   root: string;
 }
@@ -90,6 +96,8 @@ export async function runFixture(
     ...run,
     report: await readReport(root),
     comment: await readComment(root),
+    doctor: await readDoctor(root),
+    baseline: await readBaselineFile(root),
     root,
   };
 }
@@ -113,6 +121,54 @@ async function readComment(root: string): Promise<string | null> {
     if (isNotFound(cause)) return null;
     throw cause;
   }
+}
+
+async function readDoctor(root: string): Promise<DoctorResult | null> {
+  const file = path.join(root, "invariant-doctor.json");
+  try {
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    return isDoctorResult(parsed) ? parsed : null;
+  } catch (cause) {
+    if (isNotFound(cause)) return null;
+    throw cause;
+  }
+}
+
+async function readBaselineFile(root: string): Promise<Baseline | null> {
+  const file = path.join(root, ".invariant/protection-baseline.json");
+  try {
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    return isBaseline(parsed) ? parsed : null;
+  } catch (cause) {
+    if (isNotFound(cause)) return null;
+    throw cause;
+  }
+}
+
+function isDoctorResult(value: unknown): value is DoctorResult {
+  return (
+    isRecord(value) &&
+    value["schema_version"] === 1 &&
+    (value["repo"] === null || typeof value["repo"] === "string") &&
+    (value["run_id"] === null || typeof value["run_id"] === "string") &&
+    typeof value["class"] === "string" &&
+    Array.isArray(value["reasons"]) &&
+    Array.isArray(value["findings"]) &&
+    isRecord(value["observation"])
+  );
+}
+
+function isBaseline(value: unknown): value is Baseline {
+  return (
+    isRecord(value) &&
+    value["schema_version"] === 1 &&
+    typeof value["recorded_class"] === "string" &&
+    isRecord(value["expected"])
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNotFound(cause: unknown): boolean {
