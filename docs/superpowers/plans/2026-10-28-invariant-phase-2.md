@@ -314,7 +314,7 @@ Run: `cd packages/cli && npx vitest run test/unit/adapter-contract.test.ts test/
 - `node_modules` is recreated as a **real directory** containing symlinks to each top-level entry of the source `node_modules`, so Vite's cache (`node_modules/.vite`) is written in the sandbox, not through a symlink into the repo. Nested `node_modules` directories are handled the same way.
 - `sanitizedEnv` removes the variable families listed in Global Constraints, sets `HOME`/`USERPROFILE`/`TMPDIR` to the sandbox, sets `CI=1`, keeps `PATH`, preserves `PLAYWRIGHT_BROWSERS_PATH` when set, and sets `NODE_OPTIONS=--import <file URL of the preload>`. The preload blocks non-loopback `net.connect`, `http(s).request`, `http2.connect`, `tls.connect`, `dns.lookup` and `fetch`; loopback (`127.0.0.1`, `::1`, `localhost`) is allowed because the app under test may need a local server.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/cli/test/unit/negative-sandbox.test.ts
@@ -330,7 +330,7 @@ describe("createSandbox", () => {
       "package.json": "{}",
       "src/a.ts": "export const a = 1",
       ".env": "TOKEN=secret",
-      ".git/config": "[core]",
+      ".git/objects/x": "",
       "node_modules/.bin/x": "",
     });
     const sandbox = await createSandbox(source, "test");
@@ -358,25 +358,25 @@ describe("sanitizedEnv", () => {
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd packages/cli && npx vitest run test/unit/negative-sandbox.test.ts` → FAIL.
 
-- [ ] **Step 3: Implement the copy and the farm**
+- [x] **Step 3: Implement the copy and the farm**
 
 Use `fs.cp(source, root, { recursive: true, dereference: true, filter })`; dereferencing closes the symlink-escape hole. Collect every directory named `node_modules` in the source (skipping its contents) and call `linkFarm(sourceModules, path.join(root, relative))` for each. `linkFarm` reads the top-level entries and creates one symlink per entry; `@scope` entries are linked as directories.
 
-- [ ] **Step 4: Implement the no-network preload**
+- [x] **Step 4: Implement the no-network preload**
 
 `src/assets/negative/no-network.mjs` patches the modules listed above and allows only loopback. It must be copied into the sandbox so `--import` can load it without resolving the CLI's install. The preload is an asset, so `npm run build` copies it to `dist/assets` automatically.
 
-- [ ] **Step 5: Pin the preload with a child process**
+- [x] **Step 5: Pin the preload with a child process**
 
 Add a test that spawns `node --import <preload> -e "fetch('https://example.com')"` and expects a failure, then spawns the same with `http://127.0.0.1:1` and expects a connection error rather than the block message. This distinguishes "blocked" from "nothing listening".
 
-- [ ] **Step 6: Run the tests, then commit**
+- [x] **Step 6: Run the tests, then commit**
 
-Run: `cd packages/cli && npx vitest run test/unit/negative-sandbox.test.ts` → PASS. Then `git add -A && git commit -m "feat(negative): isolated sandbox, symlink farm, sanitized env, no-network preload"`
+Run: `cd packages/cli && npx vitest run test/unit/negative-sandbox.test.ts` → PASS (6 tests). Then `git add -A && git commit -m "feat(negative): isolated sandbox, symlink farm, sanitized env, no-network preload"`
 
 ### Task 3: Failure classification and Vitest `applySabotage`
 
