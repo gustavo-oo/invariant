@@ -19,7 +19,7 @@ import path from "node:path";
 import type { CheckResult } from "../adapter/api.js";
 import { alignReportResults } from "../adapter/align.js";
 import { loadConfig } from "../config/load.js";
-import type { DiscoveredCheck, DiscoveryError } from "../discovery/types.js";
+import type { DiscoveryError } from "../discovery/types.js";
 import { readDoctorEvidence } from "../doctor/evidence.js";
 import { EXIT, type ExitCode } from "../exit.js";
 import { readText, toPosix } from "../fsutil.js";

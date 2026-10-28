@@ -2,7 +2,6 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { runVerify } from "../../src/commands/verify.js";
 import { commitAll, makeGitRepo, makeTmpRepo } from "../helpers/fixture.js";
 import { expectGolden, normalizeReport } from "../helpers/goldens.js";
 import { linkNodeModules } from "../helpers/node-modules.js";
@@ -123,8 +122,15 @@ describe("invariant verify", () => {
       }),
     });
 
-    const { code, report } = await runVerify({ root, reports: ["reports/vitest.json"] });
-    expect(code).toBe(0);
+    const run = await spawnCli(["verify", "--reports", "reports/vitest.json"], {
+      cwd: root,
+      env: hermeticEnv(),
+    });
+    expect(run.exitCode).toBe(0);
+
+    const report = JSON.parse(
+      await readFile(path.join(root, "invariant-report.json"), "utf8"),
+    ) as { rules: Array<{ rule_id: string; status: string; verdict: string }> };
     expect(report.rules.find((rule) => rule.rule_id === "SALES-004")).toMatchObject({
       status: "draft",
       verdict: "fail",

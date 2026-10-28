@@ -40,6 +40,8 @@ interface ReportOptions {
   protectedPaths?: string[];
   /** Whether the rule-change flag was present (an allowed change). */
   flagged?: boolean;
+  /** The report's CI mode; local is the hermetic default. */
+  mode?: "local" | "pr" | "push" | "merge_group";
 }
 
 /**
@@ -126,7 +128,7 @@ function reportWith(options: ReportOptions = {}): Report {
   return {
     schema_version: 1,
     tool: { name: "invariant", version: "0.1.0" },
-    inputs: { mode: "local", base: null, head: null, repo: null, run_id: null },
+    inputs: { mode: options.mode ?? "local", base: null, head: null, repo: null, run_id: null },
     guarantee: {
       class: cls,
       class_reasons:
@@ -311,9 +313,20 @@ describe("renderComment (spec §8 stage 8)", () => {
     }
   });
 
-  it("lists protected path changes so exit 1 is not an all-green table (R69)", () => {
+  it("lists protected path changes when the immutability finding made the run red (R69)", () => {
     const md = renderComment(
-      reportWith({ exitCode: 1, protectedPaths: ["rules/sales.yaml", ".invariant/config.yaml"] }),
+      reportWith({
+        exitCode: 1,
+        mode: "pr",
+        protectedPaths: ["rules/sales.yaml", ".invariant/config.yaml"],
+        integrity: [
+          {
+            code: "immutability.protected_path_changed",
+            message: "protected paths changed without the rule-change label",
+            file: "rules/sales.yaml",
+          },
+        ],
+      }),
     );
     const lines = md.split("\n");
     expect(lines).toContain("### Protected paths changed");
@@ -327,9 +340,30 @@ describe("renderComment (spec §8 stage 8)", () => {
     );
   });
 
+  it("does not claim a red run for recorded paths outside a PR (R54)", () => {
+    for (const mode of ["local", "merge_group"] as const) {
+      const md = renderComment(
+        reportWith({ exitCode: 0, mode, protectedPaths: ["rules/sales.yaml"] }),
+      );
+      expect(md).not.toContain("### Protected paths changed");
+    }
+  });
+
   it("omits the protected path section when the change was flagged as allowed", () => {
     const md = renderComment(
-      reportWith({ exitCode: 1, protectedPaths: ["rules/sales.yaml"], flagged: true }),
+      reportWith({
+        exitCode: 1,
+        mode: "pr",
+        protectedPaths: ["rules/sales.yaml"],
+        flagged: true,
+        integrity: [
+          {
+            code: "immutability.protected_path_changed",
+            message: "protected paths changed without the rule-change label",
+            file: "rules/sales.yaml",
+          },
+        ],
+      }),
     );
     expect(md).not.toContain("### Protected paths changed");
   });

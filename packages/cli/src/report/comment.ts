@@ -42,10 +42,16 @@ export function renderComment(report: Report): string {
   }
 
   // A protected-path change is a product failure (exit 1), so it never reaches
-  // the gate-failure list. Without its own section a red run whose rules are
-  // all green would render as an all-green table (R69).
-  if (report.immutability.protected_paths_changed.length > 0 && !report.immutability.flagged) {
-    blocks.push(renderProtectedPaths(report.immutability.protected_paths_changed));
+  // the gate-failure list. Gate on the finding, not on the recorded list: a
+  // local or merge_group audit records changed paths without failing the run
+  // (R54), and must not claim the run cannot be green. Without this section a
+  // red run whose rules are all green would render as an all-green table (R69).
+  const protectedPaths = report.immutability.protected_paths_changed;
+  const protectedFailure = report.integrity.some(
+    (finding) => finding.code === "immutability.protected_path_changed",
+  );
+  if (protectedFailure && protectedPaths.length > 0 && !report.immutability.flagged) {
+    blocks.push(renderProtectedPaths(protectedPaths));
   }
 
   blocks.push(renderTable(report));

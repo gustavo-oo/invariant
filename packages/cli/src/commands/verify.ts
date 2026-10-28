@@ -71,9 +71,10 @@ Options:
                               failure, never a silent local audit.
       --reports <file>        Read results from a report instead of executing.
                               Repeatable; the first readable report wins.
-                              Relative paths resolve against --root. A missing or
-                              malformed report falls back to running the suite,
-                              never to "no checks ran".
+                              Relative paths resolve against --root. A report
+                              that cannot be read (missing or invalid JSON)
+                              falls back to running the suite, never to "no
+                              checks ran".
       --doctor-result <file>  The doctor's flat DoctorResult. Its observation
                               decides whether the class can be G1, and its
                               top-level repo/run_id must match --repo/--run-id
@@ -88,6 +89,7 @@ Options:
                               absent; doctor attribution requires the flag.
       --baseline <file>       A recorded {"recorded_class": "G1"|"G2"|"G3"}.
                               A lower class than the baseline is a gate failure.
+                              A relative path resolves against the CLI's cwd.
       --out <file>            Report path (default: invariant-report.json).
       --comment <file>        PR comment path (default: invariant-comment.md).
       --json                  Print the report instead of the summary line.
