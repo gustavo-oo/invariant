@@ -495,7 +495,7 @@ Run: `cd packages/cli && npx vitest run test/unit/vitest-sabotage.test.ts test/u
 - A `not-executed` outcome from an adapter is an **error** (`negative.not_executed`, exit 2), not a product finding: the adapter was asked to apply the sabotage and did not. It sets `executed: false`.
 - The executor runs **every** declared sabotage, including checks whose normal run is red. The negative job is parallel to the checks job (spec §9.4) and must not depend on it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/cli/test/unit/negative-execute.test.ts
@@ -533,11 +533,11 @@ it("maps every enforced check to an outcome and a non-proof finding", async () =
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd packages/cli && npx vitest run test/unit/negative-execute.test.ts` → FAIL.
 
-- [ ] **Step 3: Implement the executor**
+- [x] **Step 3: Implement the executor**
 
 Read sabotage text once per check and pass it to `applySabotage`. The sandbox label is the check id (sanitized for a directory name). Convert the adapter outcome:
 
@@ -552,9 +552,9 @@ function findingFor(ruleId: string, checkId: string, outcome: SabotageOutcome): 
 }
 ```
 
-- [ ] **Step 4: Add the missing-adapter and sandbox-throw cases, then commit**
+- [x] **Step 4: Add the missing-adapter and sandbox-throw cases, then commit**
 
-A check whose `frameworkId` has no adapter is `negative.execution_failed` (exit 2), not a crash. A declared enforced check with no discovered test is `negative.check_not_discovered` (exit 2), never silently skipped. A sandbox throw is also `negative.execution_failed`, and the temp directory is removed. Run the tests → PASS. Then `git add -A && git commit -m "feat(negative): executor turns every enforced check into a SabotageOutcome"`
+A check whose `frameworkId` has no adapter is `negative.execution_failed` (exit 2), not a crash. A declared enforced check with no discovered test is `negative.check_not_discovered` (exit 2), never silently skipped. A sandbox throw is also `negative.execution_failed`, and the temp directory is removed. Run the tests → PASS (5 tests). Then `git add -A && git commit -m "feat(negative): executor turns every enforced check into a SabotageOutcome"`
 
 ### Task 5: `invariant negative` executes the control
 
