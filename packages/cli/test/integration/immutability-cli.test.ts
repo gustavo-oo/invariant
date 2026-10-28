@@ -46,11 +46,24 @@ const eventPath = (name: string): string => fileURLToPath(new URL(`../fixtures/$
 
 /** Base commit with a §5-valid, reconciling registry; then a protected change on top. */
 async function repoWithRuleChange(): Promise<{ root: string; baseSha: string }> {
-  const { root, baseSha } = await makeGitRepo({ "rules/sales.yaml": RULE_BEFORE, "src/sales.test.ts": CHECK });
+  const { root, baseSha } = await makeGitRepo({
+    "rules/sales.yaml": RULE_BEFORE,
+    "src/sales.test.ts": CHECK,
+    // A later task may check that the declared artifact exists: make the fixture
+    // honest now rather than have it break there.
+    ".invariant/sabotages/sales/stock.ts": "export const sabotaged = true;\n",
+  });
   const amended = RULE_BEFORE.replace("Prevents overselling.", "Prevents overselling at any price.");
   await writeFile(path.join(root, "rules/sales.yaml"), amended, "utf8");
   await commitAll(root, "amend the rule");
   return { root, baseSha };
+}
+
+/** A child env with `GITHUB_EVENT_PATH` removed, so "no event" is hermetic. */
+function withoutEventPath(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env["GITHUB_EVENT_PATH"];
+  return env;
 }
 
 describe("invariant validate immutability", () => {
@@ -96,7 +109,32 @@ describe("invariant validate immutability", () => {
     expect(run.stdout).toBe("");
     expect(run.stderr).toContain("immutability.diff_unavailable");
     expect(run.stderr).not.toContain("immutability.protected_path_changed");
+    expect(run.stderr.startsWith("(diff) ")).toBe(true);
+    expect(run.stderr).toContain("no-such-base");
     // One finding per line, even when git's stderr is multi-line.
+    expect(run.stderr.trimEnd().split("\n")).toHaveLength(1);
+  });
+
+  it("treats no event at all as a legitimate local audit: records, never fails", async () => {
+    const { root, baseSha } = await repoWithRuleChange();
+    const run = await spawnCli(["validate", "--base", baseSha], { cwd: root, env: withoutEventPath() });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toBe("1 enforced rule\n");
+    expect(run.stderr).toBe("");
+  });
+
+  it("exits 2 when a supplied event cannot be read, instead of silently skipping the check", async () => {
+    const { root, baseSha } = await repoWithRuleChange();
+    const run = await spawnCli(
+      ["validate", "--base", baseSha, "--event", path.join(root, "missing-event.json")],
+      { cwd: root, env: withoutEventPath() },
+    );
+
+    expect(run.exitCode).toBe(2);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toContain("ci.event_unreadable");
+    expect(run.stderr).not.toContain("immutability.protected_path_changed");
     expect(run.stderr.trimEnd().split("\n")).toHaveLength(1);
   });
 

@@ -35,11 +35,11 @@ export interface FixtureRun {
 
 export async function spawnCli(
   args: string[],
-  opts: { cwd: string },
+  opts: { cwd: string; env?: NodeJS.ProcessEnv },
 ): Promise<{ exitCode: ExitCode; stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
     // No shell: every argument reaches the CLI verbatim.
-    const child = spawn(process.execPath, [CLI_PATH, ...args], { cwd: opts.cwd });
+    const child = spawn(process.execPath, [CLI_PATH, ...args], { cwd: opts.cwd, env: opts.env ?? process.env });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");

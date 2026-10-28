@@ -2,21 +2,29 @@
  * The CI event, read from GitHub's event JSON (`--event <path>` or
  * `GITHUB_EVENT_PATH`).
  *
- * ### Why this never throws
+ * ### Total, but not silent
  *
- * `readEvent` runs before anything useful can happen, on whatever file CI
- * handed the process. A missing, unreadable or malformed event — or an event
- * this verifier does not understand, such as `push` or `workflow_dispatch` — is
- * not a crash and not a gate error: it is simply a run with no pull-request
- * context. The caller then has no base/head/labels, so it cannot claim to have
- * checked immutability, and `immutabilityFinding` never fails outside a
- * pull-request context. Fail-closed behaviour lives where the decision is made,
- * not in parsing.
+ * `readEvent` never throws: it runs before anything useful can happen, on
+ * whatever file CI handed the process, and a crash there would hide the real
+ * problem. It does, however, report *why* it has no pull-request context
+ * (`eventStatus`), because "no event was supplied" and "the event you supplied
+ * is broken" are different situations: the first is a legitimate local audit,
+ * the second must not silently skip PR enforcement (R58). The caller decides;
+ * this module only tells the truth about what it read.
  */
 import { readText } from "../fsutil.js";
 
 /** The mode a report records; only `pr` can fail an immutability check. */
 export type CiMode = "local" | "pr" | "push" | "merge_group";
+
+/**
+ * How the event was obtained:
+ * - `parsed` — a JSON object was read (a `push` payload still maps to `local`).
+ * - `absent` — no path was supplied at all.
+ * - `unreadable` — a path was supplied but could not be read or parsed as a
+ *   JSON object.
+ */
+export type EventStatus = "parsed" | "absent" | "unreadable";
 
 /**
  * The CI facts immutability and the report need. `base`/`head` are refs, not
@@ -29,26 +37,26 @@ export interface CiContext {
   repo: string | null;
   runId: string | null;
   labels: string[];
+  eventStatus: EventStatus;
 }
-
-/** The context for a run with no (usable) event. */
-const LOCAL: CiContext = { mode: "local", base: null, head: null, repo: null, runId: null, labels: [] };
 
 /**
  * Read the event at `path`, or at `GITHUB_EVENT_PATH` when no explicit path was
- * given. Total: every failure yields `LOCAL`.
+ * given. Total: every failure yields a `local` context carrying `eventStatus`.
  */
 export async function readEvent(path: string | undefined): Promise<CiContext> {
   const file = path ?? process.env["GITHUB_EVENT_PATH"];
-  if (file === undefined || file === "") return { ...LOCAL, labels: [] };
+  if (file === undefined || file === "") return local("absent");
 
   let payload: unknown;
   try {
     payload = JSON.parse(await readText(file));
   } catch {
-    return { ...LOCAL, labels: [] };
+    return local("unreadable");
   }
-  if (!isRecord(payload)) return { ...LOCAL, labels: [] };
+  // JSON that is not an object (an array, a string, `null`) cannot describe an
+  // event: treat it like malformed JSON rather than as "nothing to see".
+  if (!isRecord(payload)) return local("unreadable");
 
   const repo = stringAt(payload, ["repository", "full_name"]);
   const runId = runIdAt(payload["run_id"]);
@@ -61,15 +69,31 @@ export async function readEvent(path: string | undefined): Promise<CiContext> {
       repo,
       runId,
       labels: labelsOf(pullRequest["labels"]),
+      eventStatus: "parsed",
     };
   }
 
   const mergeGroup = payload["merge_group"];
   if (isRecord(mergeGroup)) {
-    return { mode: "merge_group", base: null, head: stringAt(mergeGroup, ["head_sha"]), repo, runId, labels: [] };
+    return {
+      mode: "merge_group",
+      base: null,
+      head: stringAt(mergeGroup, ["head_sha"]),
+      repo,
+      runId,
+      labels: [],
+      eventStatus: "parsed",
+    };
   }
 
-  return { ...LOCAL, labels: [] };
+  // A readable event this verifier does not act on (`push`, `workflow_dispatch`,
+  // …): a local audit, not an error.
+  return local("parsed");
+}
+
+/** A context with no usable event, tagged with why. */
+function local(eventStatus: EventStatus): CiContext {
+  return { mode: "local", base: null, head: null, repo: null, runId: null, labels: [], eventStatus };
 }
 
 /** A non-string label name is skipped: it cannot be the configured label. */

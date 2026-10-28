@@ -57,7 +57,7 @@ export function immutabilityFinding(input: ImmutabilityInput): ImmutabilityResul
     return { finding: null, protectedPathsChanged, flagged };
   }
 
-  const listed = protectedPathsChanged.join(", ");
+  const listed = protectedPathsChanged.map(oneLine).join(", ");
   const noun = protectedPathsChanged.length === 1 ? "path" : "paths";
   return {
     finding: {
@@ -75,6 +75,15 @@ function protectedSubset(changed: string[], protectedPaths: string[]): string[] 
   const entries = protectedPaths.map(normalize).filter((entry) => entry !== "");
   const matches = changed.map(normalize).filter((file) => file !== "" && entries.some((entry) => covers(entry, file)));
   return [...new Set(matches)].sort();
+}
+
+/**
+ * Findings print one per line. Git allows a newline in a filename, so the human
+ * message carries the path with `\r`/`\n` flattened; `Finding.file` keeps the
+ * real bytes so a consumer can still open the file.
+ */
+function oneLine(file: string): string {
+  return file.replace(/[\r\n]/g, " ");
 }
 
 /**

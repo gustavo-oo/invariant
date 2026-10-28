@@ -42,6 +42,7 @@
     "credentialBoundary": { "enum": ["declared", "none"] },
     "protectedPaths": {
       "type": "array",
+      "description": "Paths whose changes require the rule-change label. An entry ending in '/' is a directory prefix (e.g. 'rules/'); an entry without it is an exact file path (e.g. '.github/CODEOWNERS').",
       "items": { "type": "string" }
     }
   }

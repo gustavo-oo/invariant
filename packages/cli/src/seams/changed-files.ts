@@ -17,6 +17,13 @@ import { toPosix } from "../fsutil.js";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * A legitimate diff of a large repo can exceed Node's 1 MiB default and would
+ * otherwise be indistinguishable from a git failure. 64 MiB of `-z` file names
+ * is far past any real changeset.
+ */
+const MAX_BUFFER = 64 * 1024 * 1024;
+
 /** What the caller needs to know: which files, and which refs produced them. */
 export interface ChangedFiles {
   /** Sorted, de-duplicated, repo-relative POSIX paths. */
@@ -49,7 +56,12 @@ export function createChangedFilesProvider(): ChangedFilesProvider {
         // A shallow or fresh checkout may not know the base yet: fetch that one
         // commit and retry the same diff exactly once.
         if (!UNKNOWN_BASE.test(errorMessage(cause))) throw cause;
-        await git(root, ["fetch", "--depth=1", "origin", base]);
+        try {
+          await git(root, ["fetch", "--depth=1", "origin", base]);
+        } catch (fetchCause) {
+          // Report both: the fetch's stderr alone hides what the diff asked for.
+          throw new Error(`${errorMessage(cause)}; ${errorMessage(fetchCause)}`);
+        }
         stdout = await git(root, args);
       }
 
@@ -73,7 +85,7 @@ function assertRef(ref: string, name: string): void {
 /** Run git in `root` and return stdout; any failure carries git's stderr. */
 async function git(root: string, args: string[]): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("git", args, { cwd: root, encoding: "utf8" });
+    const { stdout } = await execFileAsync("git", args, { cwd: root, encoding: "utf8", maxBuffer: MAX_BUFFER });
     return stdout;
   } catch (cause) {
     throw new Error(`git ${args.join(" ")} failed: ${gitStderr(cause)}`);

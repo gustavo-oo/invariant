@@ -14,17 +14,18 @@
  *
  * Exit codes separate the two kinds of failure (R56): a protected path changed
  * in a pull request without the rule-change label is a *product* verdict
- * (exit 1, spec §12), while config/registry/integrity findings — and a diff
- * that could not be computed at all — are gate errors (exit 2). Product
- * findings print to stdout, like every other product verdict; gate findings
- * print to stderr, so a pipeline can separate "red" from "broken".
+ * (exit 1, spec §12), while config/registry/integrity findings — and any reason
+ * the immutability check could not be computed (no readable event, no diff) —
+ * are gate errors (exit 2). Product findings print to stdout, like every other
+ * product verdict; gate findings print to stderr, so a pipeline can separate
+ * "red" from "broken".
  */
 import path from "node:path";
 import { readEvent, type CiContext } from "../ci/event.js";
 import { loadConfig } from "../config/load.js";
 import type { Config } from "../config/model.js";
 import { EXIT, type ExitCode } from "../exit.js";
-import { immutabilityFinding } from "../immutability/diff.js";
+import { immutabilityFinding, PROTECTED_PATH_CHANGED } from "../immutability/diff.js";
 import { stringifyJson, writeOut, type CliIo } from "../output.js";
 import { reconcile } from "../registry/integrity.js";
 import { loadRegistry } from "../registry/load.js";
@@ -64,7 +65,7 @@ Exit codes:
      protected path changed outside the flagged path.
   1  A protected path changed in a pull request without the rule-change label.
   2  The registry (or the configuration) is invalid, integrity is broken, or the
-     diff could not be computed.
+     event or diff could not be read.
 `;
 
 interface Options {
@@ -80,7 +81,7 @@ interface Options {
  * `immutability.` namespace — currently only `immutability.diff_unavailable` —
  * means the check could not run, which is a gate error (2), never a red (1).
  */
-const PRODUCT_IMMUTABILITY_CODES = new Set(["immutability.protected_path_changed"]);
+const PRODUCT_IMMUTABILITY_CODES = new Set([PROTECTED_PATH_CHANGED]);
 
 export async function validate(argv: string[], io: CliIo): Promise<ExitCode> {
   const parsed = parseArgs(argv, io);
@@ -97,10 +98,23 @@ export async function validate(argv: string[], io: CliIo): Promise<ExitCode> {
     findings.push(...reconcile(registry, await createDiscoverySource(config).discover(options.root)));
   }
 
-  // Stage 4, only over a registry that already passed stages 1–3.
-  if (findings.length === 0) {
-    const context = await readEvent(options.event ?? undefined);
-    if (options.base !== null) {
+  // Stage 4, only over a registry that already passed stages 1–3, and only when
+  // there is a base to compare against. Without `--base` the event is irrelevant:
+  // no diff means no immutability claim, so it is not even read.
+  if (findings.length === 0 && options.base !== null) {
+    const eventPath = options.event ?? process.env["GITHUB_EVENT_PATH"];
+    const context = await readEvent(eventPath);
+    if (context.eventStatus === "unreadable") {
+      // A path was supplied and cannot be used: silently degrading to `local`
+      // here would skip PR enforcement with a green exit (R58).
+      findings.push({
+        code: "ci.event_unreadable",
+        message: `cannot read the CI event ${oneLine(eventPath ?? "(event)")} as JSON; immutability was not checked`,
+        file: "(event)",
+      });
+    } else {
+      // `absent` is a legitimate local audit: record the protected changes,
+      // never fail on them.
       findings.push(...(await immutabilityFindings(options.base, context, config, options.root)));
     }
   }
@@ -122,8 +136,9 @@ export async function validate(argv: string[], io: CliIo): Promise<ExitCode> {
 /**
  * Diff `base...head` and classify the result. A diff that cannot be computed is
  * its own finding (`immutability.diff_unavailable`, exit 2): the verifier must
- * never let an unreadable diff pass as "nothing changed" (SELF-003). The base
- * ref stands in for `file`, which a repository-wide failure does not have.
+ * never let an unreadable diff pass as "nothing changed" (SELF-003). The
+ * location column is `(diff)` because a repository-wide failure has no path;
+ * the base ref stays in the message.
  */
 async function immutabilityFindings(base: string, context: CiContext, config: Config, root: string): Promise<Finding[]> {
   try {
@@ -140,7 +155,7 @@ async function immutabilityFindings(base: string, context: CiContext, config: Co
       {
         code: "immutability.diff_unavailable",
         message: oneLine(cause instanceof Error ? cause.message : String(cause)),
-        file: base,
+        file: "(diff)",
       },
     ];
   }
