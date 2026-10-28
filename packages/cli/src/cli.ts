@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { run } from "./commands/run.js";
+import { negative } from "./commands/negative.js";
 import { validate } from "./commands/validate.js";
 import { verdict } from "./commands/verdict.js";
 import { verify } from "./commands/verify.js";
@@ -44,6 +45,7 @@ type Command = (argv: string[], io: CliIo) => Promise<ExitCode>;
 const COMMANDS: Record<string, Command> = {
   validate,
   run,
+  negative,
   verdict,
   verify,
 };

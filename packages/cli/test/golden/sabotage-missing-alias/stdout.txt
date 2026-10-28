@@ -1,0 +1,2 @@
+negative control: declared-only — seam sabotage is NOT executed in this delivery (Phase 2)
+declared: 1 checks

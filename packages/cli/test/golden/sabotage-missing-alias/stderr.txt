@@ -1,0 +1,1 @@
+.invariant/sabotages/sales/stock.ts negative.seam_alias_missing sabotage .invariant/sabotages/sales/stock.ts has no @seam-alias <path> comment
