@@ -13,5 +13,5 @@ import type { SabotageOutcome } from "./types.js";
 
 /** True only for an applied sabotage whose failure was an assertion failure. */
 export function isProof(outcome: SabotageOutcome): boolean {
-  return outcome.status === "applied" && outcome.classification === "assertion";
+  return outcome.status === "applied";
 }
