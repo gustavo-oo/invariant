@@ -69,34 +69,16 @@ one that failed — not an infrastructure-only failure.
 
 ## Guarantee class
 
-The gate is enforced by the active ruleset. The **class is G3 (procedural)**,
-not G1: the repository has no `INVARIANT_DOCTOR_TOKEN` secret, so the doctor
-cannot observe branch protection and honestly reports `observation:
-unavailable`. G3 must never be described as a guarantee.
+The gate is enforced by the active ruleset. The repository secret
+`INVARIANT_DOCTOR_TOKEN` is configured, and the baseline in this PR records
+**G1**. The PR's gate run `40731664293` passed with `class G1`, `SELF-004:
+pass` and `exit_code: 0`.
 
-The environment itself was verified as **G1-capable** with a token held only in
-the process environment:
+The baseline becomes effective on `main` when this PR is reviewed and merged.
+The session's `gh` OAuth token was **not** stored; the secret is the
+fine-grained PAT configured by the repository owner.
 
-```
-observation: available
-protection: ruleset
-class: G1 (observed)
-```
-
-The only missing piece for CI is the repository secret. The optional
-`scripts/enable-g1.sh` helper verifies the observation, stores the secret only
-when asked, and records the baseline; see
-[the adoption guide](adopting.md#optional-raise-the-class-to-g1). The session's
-`gh` OAuth token was **not** stored as a repository secret.
-
-To raise the baseline to G1 manually:
-
-1. create a fine-grained PAT with **Administration: read** and **Metadata:
-   read** (the default `GITHUB_TOKEN` cannot read rulesets or branch
-   protection);
-2. store it as the repository secret `INVARIANT_DOCTOR_TOKEN`;
-3. run `invariant doctor --record` and commit the resulting
-   `.invariant/protection-baseline.json`;
-4. confirm `invariant doctor --strict` reports G1 in CI.
-
-The session's `gh` OAuth token was **not** stored as a repository secret.
+The optional `scripts/enable-g1.sh` helper remains available for adopters; it
+verifies the observation, stores the secret only when asked, and records the
+baseline. See
+[the adoption guide](adopting.md#optional-raise-the-class-to-g1).

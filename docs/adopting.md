@@ -147,9 +147,8 @@ ruleset is imported and the first green gate run.
 
 The script never creates the PAT. It refuses to record a baseline unless the
 doctor actually observed G1, so a missing permission cannot silently produce a
-G1 claim. The environment in this repository was verified as G1-capable with a
-token held only in the process environment; the CI class remains G3 until the
-secret is stored.
+G1 claim. This repository has verified and recorded G1; the deployment PR is
+awaiting the required review.
 
 
 The generated workflow runs four jobs:

@@ -121,8 +121,9 @@ For the optional step that raises the class from G3 to G1, see
 
 The public dogfood repository is <https://github.com/gustavo-oo/invariant>. Its
 [deployment record](docs/deployment.md) includes the imported protection
-ruleset and the red-PR evidence. The gate is active; the class remains G3 until
-the repository owner adds the `INVARIANT_DOCTOR_TOKEN` secret.
+ruleset, the red-PR evidence and the recorded G1 baseline. The gate is active;
+the deployment PR is awaiting the required code-owner review before the baseline
+lands on `main`.
 
 ## Development
 
