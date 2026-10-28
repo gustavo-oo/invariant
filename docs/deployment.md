@@ -69,16 +69,15 @@ one that failed — not an infrastructure-only failure.
 
 ## Guarantee class
 
-The gate is enforced by the active ruleset. The repository secret
-`INVARIANT_DOCTOR_TOKEN` is configured, and the baseline in this PR records
-**G1**. The PR's gate run `40731664293` passed with `class G1`, `SELF-004:
-pass` and `exit_code: 0`.
+The `invariant` ruleset (id `26057771`) is currently **disabled** so a solo
+maintainer can merge without a second reviewer. The doctor therefore observes
+`protection: none` and reports **G3 (procedural)**; the baseline in this PR
+records **G3**. G3 is not a guarantee.
 
-The baseline is recorded in this PR and becomes `main`'s baseline on merge.
-The session's `gh` OAuth token was **not** stored; the secret is the
-fine-grained PAT configured by the repository owner.
-
-The optional `scripts/enable-g1.sh` helper remains available for adopters; it
-verifies the observation, stores the secret only when asked, and records the
-baseline. See
-[the adoption guide](adopting.md#optional-raise-the-class-to-g1).
+The G1 run `40731664293` and the G1 baseline were captured while the ruleset was
+active; they remain evidence, not the current class. To restore G1, re-enable
+the ruleset, provide a second reviewer (the ruleset requires one approval plus
+code-owner review), run `scripts/enable-g1.sh --record`, and re-enable the
+baseline through the rule-change path. The session's `gh` OAuth token was
+**not** stored; the repository secret is the fine-grained PAT configured by the
+owner.

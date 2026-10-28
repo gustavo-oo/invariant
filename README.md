@@ -121,8 +121,10 @@ For the optional step that raises the class from G3 to G1, see
 
 The public dogfood repository is <https://github.com/gustavo-oo/invariant>. Its
 [deployment record](docs/deployment.md) includes the imported protection
-ruleset, the red-PR evidence and the recorded G1 baseline. The gate is active
-and the deployment record carries the G1 baseline.
+ruleset, the red-PR evidence and the G1 helper. The ruleset is currently
+**disabled** so a solo maintainer can merge without a second reviewer; the
+honest class is **G3 (procedural)**. The record explains the G1 evidence and how
+to restore it.
 
 ## Development
 

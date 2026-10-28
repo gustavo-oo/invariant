@@ -147,8 +147,9 @@ ruleset is imported and the first green gate run.
 
 The script never creates the PAT. It refuses to record a baseline unless the
 doctor actually observed G1, so a missing permission cannot silently produce a
-G1 claim. This repository has verified and recorded G1; see the deployment
-record.
+G1 claim. This repository currently keeps the ruleset disabled for solo
+development, so the honest class is G3; re-enable the ruleset and provide a
+reviewer before recording G1. The helper remains ready for that switch.
 
 
 The generated workflow runs four jobs:
