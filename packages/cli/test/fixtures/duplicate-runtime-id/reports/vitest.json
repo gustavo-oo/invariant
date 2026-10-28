@@ -1,0 +1,27 @@
+{
+  "testResults": [
+    {
+      "name": "src/a.test.ts",
+      "assertionResults": [
+        {
+          "fullName": "sales is idempotent",
+          "ancestorTitles": ["sales"],
+          "title": "is idempotent",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "name": "src/b.test.ts",
+      "assertionResults": [
+        {
+          "fullName": "sales is idempotent",
+          "ancestorTitles": ["sales"],
+          "title": "is idempotent",
+          "status": "failed",
+          "failureMessages": ["expected true to be false"]
+        }
+      ]
+    }
+  ]
+}

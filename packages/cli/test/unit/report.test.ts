@@ -36,6 +36,10 @@ interface ReportOptions {
   exitCode?: ExitCode;
   /** Integrity findings carried by the report. */
   integrity?: WireFinding[];
+  /** Protected paths the run reported as changed. */
+  protectedPaths?: string[];
+  /** Whether the rule-change flag was present (an allowed change). */
+  flagged?: boolean;
 }
 
 /**
@@ -138,7 +142,10 @@ function reportWith(options: ReportOptions = {}): Report {
       files: ["rules/sales.yaml"],
       hashes: { "rules/sales.yaml": `sha256:${"0".repeat(64)}` },
     },
-    immutability: { protected_paths_changed: [], flagged: false },
+    immutability: {
+      protected_paths_changed: options.protectedPaths ?? [],
+      flagged: options.flagged ?? false,
+    },
     integrity: options.integrity ?? [],
     checks: [...checks, ...flowChecks],
     rules,
@@ -302,6 +309,29 @@ describe("renderComment (spec §8 stage 8)", () => {
       );
       expect(md).not.toContain("### Gate failures");
     }
+  });
+
+  it("lists protected path changes so exit 1 is not an all-green table (R69)", () => {
+    const md = renderComment(
+      reportWith({ exitCode: 1, protectedPaths: ["rules/sales.yaml", ".invariant/config.yaml"] }),
+    );
+    const lines = md.split("\n");
+    expect(lines).toContain("### Protected paths changed");
+    expect(lines).toContain("- `.invariant/config.yaml`");
+    expect(lines).toContain("- `rules/sales.yaml`");
+    expect(lines).toContain(
+      "A protected path changed outside the flagged rule-change path; this run cannot be green.",
+    );
+    expect(md.indexOf("### Protected paths changed")).toBeLessThan(
+      md.indexOf("| Flow | Verdict | Step | Rule | Verdict | Check | Reason |"),
+    );
+  });
+
+  it("omits the protected path section when the change was flagged as allowed", () => {
+    const md = renderComment(
+      reportWith({ exitCode: 1, protectedPaths: ["rules/sales.yaml"], flagged: true }),
+    );
+    expect(md).not.toContain("### Protected paths changed");
   });
 
   it("falls back to the fileless gate line when a finding carries no file", () => {

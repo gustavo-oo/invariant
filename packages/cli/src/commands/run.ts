@@ -15,6 +15,7 @@
  */
 import path from "node:path";
 import type { Adapter, CheckResult } from "../adapter/api.js";
+import { alignReportResults } from "../adapter/align.js";
 import { findAdapter } from "../adapter/registry.js";
 import { loadConfig } from "../config/load.js";
 import type { DiscoveredCheck, DiscoveryError } from "../discovery/types.js";
@@ -142,16 +143,9 @@ async function execute(
 ): Promise<CheckResult[] | { error: string }> {
   if (options.reports.length > 0) {
     const reported = await adapter.readReports(options.reports, options.root);
-    if (reported !== null) return fromReport(checks, reported);
+    if (reported !== null) return alignReportResults(checks, reported);
   }
   return await createCheckRunner(adapter).run(checks, { root: options.root });
-}
-
-/** Align a file-less report with the discovered checks; first match wins. */
-function fromReport(checks: DiscoveredCheck[], results: CheckResult[]): CheckResult[] {
-  return checks.map(
-    (check) => results.find((result) => result.runtimeId === check.runtimeId) ?? notRun(check),
-  );
 }
 
 /**

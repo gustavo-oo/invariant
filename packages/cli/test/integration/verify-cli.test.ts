@@ -2,9 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { runVerify } from "../../src/commands/verify.js";
 import { commitAll, makeGitRepo, makeTmpRepo } from "../helpers/fixture.js";
 import { expectGolden, normalizeReport } from "../helpers/goldens.js";
 import { linkNodeModules } from "../helpers/node-modules.js";
+import { capability } from "../helpers/registry.js";
 import { runFixture, spawnCli } from "../helpers/run-cli.js";
 
 /**
@@ -85,6 +87,119 @@ describe("invariant verify", () => {
     expect(run.exitCode).toBe(1);
     expect(run.report?.rules[0]?.verdict).toBe("flaky");
     await expectGolden("flaky-check", run.stdout, "stdout.txt");
+  });
+
+  it("consumes each report result once when two checks share a runtimeId (R35)", async () => {
+    // src/a.test.ts passes and src/b.test.ts fails, but both carry the same
+    // runtimeId. A first-match lookup would green both checks and exit 0.
+    const run = await runFixture("duplicate-runtime-id", {
+      args: ["verify", "--reports", "reports/vitest.json"],
+      env: hermeticEnv(),
+    });
+
+    expect(run.exitCode).toBe(1);
+    expect(run.report?.checks.map((check) => check.verdict).sort()).toEqual(["fail", "pass"]);
+    expect(run.report?.rules[0]?.verdict).toBe("fail");
+  });
+
+  it("does not gate a failing check under a draft rule (spec §5.3)", async () => {
+    const root = await makeTmpRepo({
+      "rules/sales.yaml": capability("SALES-004", { status: "draft" }),
+      "src/sales.test.ts": `import { describe, test } from "vitest";\n\ndescribe("sales", () => {\n  // @check sales.rejects-insufficient-stock\n  // @rule SALES-004\n  test("rejects insufficient stock", () => {});\n});\n`,
+      "reports/vitest.json": JSON.stringify({
+        testResults: [
+          {
+            name: "src/sales.test.ts",
+            assertionResults: [
+              {
+                fullName: "sales rejects insufficient stock",
+                ancestorTitles: ["sales"],
+                title: "rejects insufficient stock",
+                status: "failed",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const { code, report } = await runVerify({ root, reports: ["reports/vitest.json"] });
+    expect(code).toBe(0);
+    expect(report.rules.find((rule) => rule.rule_id === "SALES-004")).toMatchObject({
+      status: "draft",
+      verdict: "fail",
+    });
+  });
+
+  it("lets a gate failure outrank a product failure (2 > 1)", async () => {
+    const flaky = await runFixture("flaky-check", {
+      args: ["verify", "--reports", "reports/vitest.json"],
+      env: hermeticEnv(),
+    });
+    expect(flaky.exitCode).toBe(1);
+    await writeFile(path.join(flaky.root, "baseline.json"), JSON.stringify({ recorded_class: "G1" }), "utf8");
+
+    const run = await spawnCli(
+      ["verify", "--reports", "reports/vitest.json", "--baseline", "baseline.json"],
+      { cwd: flaky.root, env: hermeticEnv() },
+    );
+    expect(run.exitCode).toBe(2);
+
+    const report = JSON.parse(
+      await readFile(path.join(flaky.root, "invariant-report.json"), "utf8"),
+    ) as { integrity: Array<{ code: string }>; rules: Array<{ verdict: string }> };
+    expect(report.integrity.map((finding) => finding.code)).toContain("baseline.regressed");
+    expect(report.rules[0]?.verdict).toBe("flaky");
+  });
+
+  it("gates a supplied but unreadable event even without --base (R58)", async () => {
+    const healthy = await runFixture("healthy-registry", { args: ["verify"], env: hermeticEnv() });
+    await writeFile(path.join(healthy.root, "bad-event.json"), "{ not json", "utf8");
+
+    const run = await spawnCli(["verify", "--event", "bad-event.json"], {
+      cwd: healthy.root,
+      env: hermeticEnv(),
+    });
+    expect(run.exitCode).toBe(2);
+    expect(run.stderr).toContain("ci.event_unreadable");
+
+    const report = JSON.parse(
+      await readFile(path.join(healthy.root, "invariant-report.json"), "utf8"),
+    ) as { integrity: Array<{ code: string }>; rules: Array<{ verdict: string }> };
+    expect(report.integrity.map((finding) => finding.code)).toContain("ci.event_unreadable");
+    // The product itself is still evaluated and stays green.
+    expect(report.rules.map((rule) => rule.verdict)).toEqual(["pass"]);
+  });
+
+  it("resolves --baseline and --doctor-result against the CLI cwd, not --root", async () => {
+    const healthy = await runFixture("healthy-registry", { args: ["verify"], env: hermeticEnv() });
+    const cwd = await makeTmpRepo({
+      "baseline.json": JSON.stringify({ recorded_class: "G1" }),
+      "doctor.json": DOCTOR,
+    });
+
+    const run = await spawnCli(
+      [
+        "verify",
+        "--root",
+        healthy.root,
+        "--baseline",
+        "baseline.json",
+        "--doctor-result",
+        "doctor.json",
+        "--repo",
+        "acme/shop",
+        "--run-id",
+        "42",
+      ],
+      { cwd, env: hermeticEnv() },
+    );
+
+    // Both artifacts are in the cwd. Reading them from --root would make the
+    // baseline unreadable and the doctor unverifiable, so this cannot pass by
+    // accident.
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain("class G1");
   });
 
   it("never claims G1 without a doctor result and records declared-only negative control", async () => {

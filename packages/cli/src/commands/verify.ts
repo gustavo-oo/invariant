@@ -29,6 +29,7 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Adapter, CheckResult } from "../adapter/api.js";
+import { alignReportResults } from "../adapter/align.js";
 import { readEvent, type CiContext } from "../ci/event.js";
 import { prepareVerify, type VerifyContext, type VerifyInput } from "../context.js";
 import { readDoctorEvidence } from "../doctor/evidence.js";
@@ -69,15 +70,22 @@ Options:
                               event that is supplied and unreadable is a gate
                               failure, never a silent local audit.
       --reports <file>        Read results from a report instead of executing.
-                              Repeatable; the first readable report wins. A
-                              missing or malformed report falls back to running
-                              the suite, never to "no checks ran".
+                              Repeatable; the first readable report wins.
+                              Relative paths resolve against --root. A missing or
+                              malformed report falls back to running the suite,
+                              never to "no checks ran".
       --doctor-result <file>  The doctor's flat DoctorResult. Its observation
                               decides whether the class can be G1, and its
                               top-level repo/run_id must match --repo/--run-id
-                              or the observation is unverifiable.
-      --repo <owner/name>     Expected repository (default: $GITHUB_REPOSITORY).
-      --run-id <id>           Expected run id (default: $GITHUB_RUN_ID).
+                              or the observation is unverifiable. A relative path
+                              resolves against the CLI's cwd, like verdict.
+      --repo <owner/name>     Expected repository for --doctor-result. The report
+                              falls back to $GITHUB_REPOSITORY when the flag is
+                              absent, but doctor attribution never reads ambient
+                              environment, so the flag is always required for it.
+      --run-id <id>           Expected run id for --doctor-result. The report
+                              falls back to $GITHUB_RUN_ID when the flag is
+                              absent; doctor attribution requires the flag.
       --baseline <file>       A recorded {"recorded_class": "G1"|"G2"|"G3"}.
                               A lower class than the baseline is a gate failure.
       --out <file>            Report path (default: invariant-report.json).
@@ -153,6 +161,9 @@ export async function runVerify(input: VerifyRunInput): Promise<VerifyRun> {
   // reported twice.
   const broken = stage1.length > 0 ? stage1 : reconcile(registry, discovery);
 
+  // Attribution uses the flags only: ambient GITHUB_* may fill the report's
+  // inputs (ruling 10), but nothing that can raise the class is read from the
+  // environment.
   const doctor = await readDoctorEvidence({
     doctorResult: input.doctorResult === undefined ? null : repoRelative(root, input.doctorResult),
     repo: input.repo ?? null,
@@ -261,7 +272,7 @@ export async function runVerify(input: VerifyRunInput): Promise<VerifyRun> {
     } catch (cause) {
       stage4.push({
         code: "immutability.diff_unavailable",
-        message: oneLine(errorMessage(cause)),
+        message: portable(errorMessage(cause), root),
         file: "(diff)",
       });
     }
@@ -336,21 +347,9 @@ async function execute(
   }
   if (reports.length > 0) {
     const reported = await adapter.readReports(reports, context.root);
-    if (reported !== null) return fromReport(context.discovery.checks, reported);
+    if (reported !== null) return alignReportResults(context.discovery.checks, reported);
   }
   return await context.runner.run(context.discovery.checks, { root: context.root });
-}
-
-function fromReport(
-  checks: readonly { runtimeId: string }[],
-  results: CheckResult[],
-): CheckResult[] {
-  return checks.map(
-    (check) => results.find((result) => result.runtimeId === check.runtimeId) ?? {
-      runtimeId: check.runtimeId,
-      outcome: "not-run",
-    },
-  );
 }
 
 /** Every registry-declared check id, explicitly not executed (R64). */
@@ -489,10 +488,12 @@ export async function verify(argv: string[], io: CliIo): Promise<ExitCode> {
     ...(options.head === null ? {} : { head: options.head }),
     ...(options.event === null ? {} : { event: options.event }),
     ...(options.reports.length === 0 ? {} : { reports: options.reports }),
-    ...(options.doctorResult === null ? {} : { doctorResult: options.doctorResult }),
+    // These are artifacts, like verdict's: the CLI resolves them against its
+    // own cwd, not against a --root that may point at another checkout.
+    ...(options.doctorResult === null ? {} : { doctorResult: path.resolve(io.cwd, options.doctorResult) }),
     ...(options.repo === null ? {} : { repo: options.repo }),
     ...(options.runId === null ? {} : { runId: options.runId }),
-    ...(options.baseline === null ? {} : { baseline: options.baseline }),
+    ...(options.baseline === null ? {} : { baseline: path.resolve(io.cwd, options.baseline) }),
     out: path.resolve(io.cwd, options.out),
     comment: path.resolve(io.cwd, options.comment),
   });

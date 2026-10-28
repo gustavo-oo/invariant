@@ -41,6 +41,13 @@ export function renderComment(report: Report): string {
     blocks.push(renderGateFailures(report.integrity));
   }
 
+  // A protected-path change is a product failure (exit 1), so it never reaches
+  // the gate-failure list. Without its own section a red run whose rules are
+  // all green would render as an all-green table (R69).
+  if (report.immutability.protected_paths_changed.length > 0 && !report.immutability.flagged) {
+    blocks.push(renderProtectedPaths(report.immutability.protected_paths_changed));
+  }
+
   blocks.push(renderTable(report));
 
   const outside = rulesOutsideFlows(report);
@@ -164,6 +171,17 @@ function renderGateFailures(findings: WireFinding[]): string {
     const file = finding.file === "" ? "" : `\`${cell(finding.file)}\` `;
     lines.push(`- ${file}${cell(finding.code)} — ${cell(finding.message)}`);
   }
+  return lines.join("\n");
+}
+
+/**
+ * A protected-path change is a red product finding, not a broken gate. The
+ * table below would show only the (green) rules, so name the paths explicitly.
+ */
+function renderProtectedPaths(paths: string[]): string {
+  const lines = ["### Protected paths changed", ""];
+  for (const file of sortStrings(paths)) lines.push(`- \`${cell(file)}\``);
+  lines.push("", "A protected path changed outside the flagged rule-change path; this run cannot be green.");
   return lines.join("\n");
 }
 

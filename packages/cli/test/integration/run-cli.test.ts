@@ -57,6 +57,19 @@ describe("invariant run", () => {
     expect(run.stderr).toBe("");
   });
 
+  it("consumes each report result once when two checks share a runtimeId (R35)", async () => {
+    const run = await runFixture("duplicate-runtime-id", {
+      args: ["run", "--reports", "reports/vitest.json"],
+    });
+
+    expect(run.exitCode).toBe(1);
+    const lines = run.stdout.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines.filter((line) => line.endsWith(" pass"))).toHaveLength(1);
+    expect(lines.filter((line) => line.endsWith(" fail"))).toHaveLength(1);
+    expect(run.stderr).toBe("");
+  });
+
   it("writes the JSON artifact on --out, even without --json", async () => {
     const run = await runFixture("not-run-check", { args: ["run", "--out", "run-out.json"] });
     expect(run.exitCode).toBe(1);

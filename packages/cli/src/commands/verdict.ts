@@ -17,6 +17,7 @@
  */
 import path from "node:path";
 import type { CheckResult } from "../adapter/api.js";
+import { alignReportResults } from "../adapter/align.js";
 import { loadConfig } from "../config/load.js";
 import type { DiscoveredCheck, DiscoveryError } from "../discovery/types.js";
 import { readDoctorEvidence } from "../doctor/evidence.js";
@@ -458,7 +459,7 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
   }
 
   const checksArtifact = upstream.results.find((result) => result.stage === "checks");
-  const results = alignResults(discovery.checks, checksArtifact?.checks ?? []);
+  const results = alignReportResults(discovery.checks, checksArtifact?.checks ?? []);
   // A discovery failure is a gate problem, never a verdict about the product. A
   // roll-up over `discovered: []` would make every rule `rule_no_check`, which
   // reads as "the product broke" in the report and in the PR comment.
@@ -540,26 +541,6 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
 /** Gate findings belong on stderr too: CI logs must say why the gate is red. */
 function printGateFindings(io: CliIo, findings: Finding[]): void {
   if (findings.length > 0) io.stderr(findingsText(findings));
-}
-
-/**
- * R54: consume one artifact result per discovered check by `runtimeId`; a check
- * with no match gets an explicit `not-run`, and an artifact result that matches
- * nothing is ignored (it cannot be attributed to a check). The returned array is
- * index-aligned with `discovered`, so `computeVerdicts` never falls back to
- * positional pairing of a permuted artifact.
- */
-function alignResults(discovered: DiscoveredCheck[], artifact: CheckResult[]): CheckResult[] {
-  const consumed = new Set<number>();
-  return discovered.map((check) => {
-    const index = artifact.findIndex(
-      (result, candidate) => !consumed.has(candidate) && result.runtimeId === check.runtimeId,
-    );
-    const matched = index === -1 ? undefined : artifact[index];
-    if (matched === undefined) return { runtimeId: check.runtimeId, outcome: "not-run" };
-    consumed.add(index);
-    return matched;
-  });
 }
 
 function rollUpGreen(verdicts: ReturnType<typeof computeVerdicts>): boolean {

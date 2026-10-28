@@ -1,0 +1,21 @@
+capability: sales
+rules:
+  - id: SALES-010
+    statement: "A sale MUST be idempotent when submitted twice."
+    rationale: "A retried submission must not charge twice."
+    criticality: normal
+    status: enforced
+    owners: [team-commerce]
+    checks:
+      - id: sales.first
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: submitSale({ idempotencyKey })
+          sabotage: .invariant/sabotages/sales/first.ts
+      - id: sales.second
+        layer: unit
+        negative_control:
+          kind: seam
+          seam: submitSale({ idempotencyKey })
+          sabotage: .invariant/sabotages/sales/second.ts
