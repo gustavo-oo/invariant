@@ -75,9 +75,12 @@ Fail-closed upstream contract:
   no --job-status entry, a cancelled or skipped job, any other non-success
   status, or a success job whose artifact is missing, unreadable, unparseable or
   the wrong shape is a gate failure. Absence is never success.
-  The checks job is the one exception: run exits 1 when a check is not pass,
-  so a failed checks job with a readable artifact is a red product (exit 1), not
-  a gate failure. Its artifact is still required.
+  The checks job is the one exception: run exits 1 when a check is not pass, so
+  a failed checks job is believed only when its artifact explains the failure
+  with at least one non-pass outcome (exit 1). An all-pass artifact under a
+  failed job is an unexplained failure: upstream.job_failed and exit 2. A
+  missing or malformed artifact is upstream.job_failed and
+  upstream.artifact_missing.
 
 Exit codes:
   0  Every upstream artifact is green and every check, enforced rule and flow passed.
@@ -135,13 +138,16 @@ const CLASSIFICATIONS: ReadonlySet<string> = new Set(["assertion", "harness", "t
  *
  * The checks job is the one exception, and it is not a relaxation: `run` exits 1
  * exactly when a check is not `pass`, so CI reports a red *product* as a failed
- * checks job. When that job failed but left a readable artifact, the artifact is
- * the observation and the roll-up decides 0 vs 1. A missing or malformed
- * artifact is still `upstream.artifact_missing` (exit 2): the gate cannot know
- * whether the product is red or the job broke.
+ * checks job. A failed checks job is believed only when its artifact **explains
+ * the failure** with at least one outcome other than `pass`; then the artifact is
+ * the observation and the roll-up decides (exit 1). An all-`pass` artifact leaves
+ * the job failure unexplained — a crashed worker or a later failing step — and
+ * is not used: it yields `upstream.job_failed` (exit 2). A missing or malformed
+ * artifact yields `upstream.job_failed` **and** `upstream.artifact_missing`.
  *
- * `results` holds only artifacts actually read, in job order. Propagated findings
- * are the registry artifact's and the negative artifact's findings (R51).
+ * `results` holds only artifacts actually read and trusted, in job order.
+ * Propagated findings are the registry artifact's and the negative artifact's
+ * findings (R51).
  */
 export async function readStageResults(
   inputsDir: string,
@@ -159,13 +165,23 @@ export async function readStageResults(
       continue;
     }
 
+    const checksFailed = expected.stage === "checks" && status === "failure";
+
     const read = await readStageResult(
       path.join(inputsDir, expected.job, ARTIFACTS[expected.stage]),
       expected,
       file,
     );
     if (!read.ok) {
+      // A failed checks job must explain itself through a red artifact. Without
+      // one, the artifact is missing *and* the failure is unexplained.
+      if (checksFailed) findings.push(unexplainedChecksFailure(expected.job, file));
       findings.push(read.finding);
+      continue;
+    }
+
+    if (checksFailed && !explainsFailure(read.result)) {
+      findings.push(unexplainedChecksFailure(expected.job, file));
       continue;
     }
 
@@ -183,6 +199,24 @@ export async function readStageResults(
 function expectsArtifact(stage: StageName, status: string | undefined): boolean {
   if (status === "success") return true;
   return stage === "checks" && status === "failure";
+}
+
+/**
+ * A failed checks job is explained only by a red artifact: `run` exits 1 exactly
+ * when a check is not `pass`. An all-green artifact (or none at all) leaves the
+ * job failure unexplained — a worker that crashed after writing its result, or a
+ * later step in the same job — and must never yield a green required check.
+ */
+function explainsFailure(result: StageResult): boolean {
+  return (result.checks ?? []).some((check) => check.outcome !== "pass");
+}
+
+function unexplainedChecksFailure(job: string, file: string): Finding {
+  return {
+    code: "upstream.job_failed",
+    message: `${job} failed with an unexplained result: the artifact does not report a non-pass check`,
+    file,
+  };
 }
 
 function statusFinding(job: string, file: string, status: string | undefined): Finding {

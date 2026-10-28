@@ -98,9 +98,9 @@ describe("readStageResults", () => {
     expect(read.findings[0]?.message).toContain("invariant-negative");
   });
 
-  it("treats a failed checks job with a readable artifact as a product observation", async () => {
+  it("accepts a failed checks job whose artifact shows a non-pass outcome", async () => {
     // `run` exits 1 when a check is not `pass`, so the job status cannot be the
-    // gate decision; the artifact is.
+    // gate decision; the artifact is — but only when it explains the failure.
     const inputs = await makeInputs({
       "invariant-checks": artifact("invariant-checks", {
         checks: [{ runtimeId: "t", outcome: "fail" }],
@@ -114,13 +114,28 @@ describe("readStageResults", () => {
     ]);
   });
 
-  it("requires an artifact from a failed checks job and says it was not found", async () => {
+  it("rejects a failed checks job whose artifact is all-green as unexplained", async () => {
+    const inputs = await makeInputs({
+      "invariant-checks": artifact("invariant-checks", {
+        checks: [{ runtimeId: "t", outcome: "pass" }],
+      }),
+    });
+    const read = await readStageResults(inputs, statuses({ "invariant-checks": "failure" }));
+
+    expect(codes(read.findings)).toEqual(["upstream.job_failed"]);
+    expect(read.findings[0]?.message).toContain("invariant-checks");
+    expect(read.findings[0]?.message).toContain("unexplained");
+    // An unexplained artifact is not a usable observation.
+    expect(read.results.map((result) => result.stage)).not.toContain("checks");
+  });
+
+  it("requires an artifact from a failed checks job and reports the missing artifact too", async () => {
     const inputs = await makeInputs({ "invariant-checks": null });
     const read = await readStageResults(inputs, statuses({ "invariant-checks": "failure" }));
 
-    expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
+    expect(codes(read.findings)).toEqual(["upstream.job_failed", "upstream.artifact_missing"]);
     expect(read.findings[0]?.file).toBe("invariant-checks/checks-result.json");
-    expect(read.findings[0]?.message).toBe("artifact not found");
+    expect(read.findings[1]?.message).toBe("artifact not found");
   });
 
   it("never reads an artifact for a non-success job, even a malformed one", async () => {

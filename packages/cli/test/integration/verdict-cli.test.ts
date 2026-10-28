@@ -230,6 +230,35 @@ describe("invariant verdict", () => {
     expect(report.rules.map((rule) => [rule.rule_id, rule.verdict])).toEqual([["SALES-004", "fail"]]);
   });
 
+  it("is a gate failure when the checks job failed but its artifact is all-green", async () => {
+    // A worker can crash after writing its artifact, or a later step in the job
+    // can fail: an all-green artifact does not explain the failed job.
+    const root = await makeVerdictRepo("pass");
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--job-status",
+        "invariant-registry=success",
+        "--job-status",
+        "invariant-checks=failure",
+        "--job-status",
+        "invariant-negative=success",
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(2);
+    expect(run.stdout).toBe("G3 gate broken\n");
+    const report = await readReportFile(root);
+    expect(report.exit_code).toBe(2);
+    expect(report.integrity.map((finding) => finding.code)).toContain("upstream.job_failed");
+    // The untrustworthy artifact is not used: an all-green result under a failed
+    // job must not be published as a pass.
+    expect(report.checks.map((check) => check.verdict)).toEqual(["not-run"]);
+  });
+
   it("is a gate failure when the checks job failed and left no artifact", async () => {
     const root = await makeVerdictRepo("fail", {}, ["checks"]);
     const run = await spawnCli(
@@ -249,7 +278,9 @@ describe("invariant verdict", () => {
 
     expect(run.exitCode).toBe(2);
     const report = await readReportFile(root);
-    expect(report.integrity.map((finding) => finding.code)).toContain("upstream.artifact_missing");
+    const codes = report.integrity.map((finding) => finding.code);
+    expect(codes).toContain("upstream.artifact_missing");
+    expect(codes).toContain("upstream.job_failed");
   });
 
   it("rejects a duplicate --job-status for one job instead of letting the last entry win", async () => {
