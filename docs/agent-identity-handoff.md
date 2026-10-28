@@ -140,7 +140,8 @@ export GH_TOKEN="$(node scripts/github-app-token.mjs \
   --app-id <APP_ID> \
   --installation-id <INSTALLATION_ID> \
   --private-key ~/.config/invariant/app.pem)"
-gh api user --jq .login      # must print <app-slug>[bot]
+gh api /installation/repositories --jq '.repositories[].full_name'
+# must print gustavo-oo/invariant; /user is not available to installation tokens
 ```
 
 The token expires after about one hour; mint a new one for each session. Never
