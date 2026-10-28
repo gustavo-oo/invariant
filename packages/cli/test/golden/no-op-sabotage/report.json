@@ -18,7 +18,7 @@
       "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
     ],
     "binding": false,
-    "negative_control": "declared-only",
+    "negative_control": "executed",
     "doctor": {
       "ran": false,
       "class": "G3",
@@ -42,7 +42,15 @@
     "protected_paths_changed": [],
     "flagged": false
   },
-  "integrity": [],
+  "integrity": [
+    {
+      "code": "negative.sabotage_not_applied",
+      "message": "check sales.rejects-insufficient-stock stayed green under its sabotage; the seam was not exercised or the sabotage is a no-op",
+      "file": ".invariant/sabotages/sales/stock.ts",
+      "rule_id": "SALES-004",
+      "check_id": "sales.rejects-insufficient-stock"
+    }
+  ],
   "checks": [
     {
       "check_id": "sales.rejects-insufficient-stock",
@@ -54,10 +62,10 @@
       "file": "src/checkout.test.ts",
       "line": 7,
       "runtime_id": "sales > is rejected when stock is insufficient",
-      "verdict": "pass",
-      "reason": "check.passed",
+      "verdict": "blocked",
+      "reason": "check.blocked",
       "negative_control": {
-        "status": "not-executed"
+        "status": "not-applied"
       }
     }
   ],
@@ -68,8 +76,8 @@
       "capability": "sales",
       "criticality": "critical",
       "status": "enforced",
-      "verdict": "pass",
-      "reason": "check.passed",
+      "verdict": "blocked",
+      "reason": "check.blocked",
       "check_ids": [
         "sales.rejects-insufficient-stock"
       ],
@@ -77,5 +85,5 @@
     }
   ],
   "flows": [],
-  "exit_code": 0
+  "exit_code": 1
 }

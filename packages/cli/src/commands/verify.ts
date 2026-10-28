@@ -37,6 +37,7 @@ import { EXIT, type ExitCode } from "../exit.js";
 import { readText, toPosix } from "../fsutil.js";
 import { classRank, computeClass, type GuaranteeClass } from "../guarantee/class.js";
 import { immutabilityFinding, PROTECTED_PATH_CHANGED } from "../immutability/diff.js";
+import { runNegativeControl } from "../negative/execute.js";
 import { stringifyJson, writeOut, type CliIo } from "../output.js";
 import { reconcile } from "../registry/integrity.js";
 import type { Finding, Registry } from "../registry/model.js";
@@ -112,13 +113,6 @@ Exit codes:
 const DEFAULT_OUT = "invariant-report.json";
 const DEFAULT_COMMENT = "invariant-comment.md";
 
-/**
- * PEND-1/R64: nothing in this delivery applies or classifies sabotage, so the
- * negative control is declared and no rule is proven able to fail. The value is
- * a constant, not a default that a missing observation quietly produced.
- */
-const NEGATIVE_CONTROL: NegativeControlMode = "declared-only";
-
 export interface VerifyRunInput extends VerifyInput {
   doctorResult?: string;
   repo?: string;
@@ -146,6 +140,8 @@ export async function runVerify(input: VerifyRunInput): Promise<VerifyRun> {
   const context = prepared.context;
   const root = context.root;
   const { config, registry, discovery } = context;
+  // Stage 6 upgrades this to `executed` only after every declared sabotage ran.
+  let negativeControl: NegativeControlMode = "declared-only";
 
   // The report records the event even when a later stage fails, and the
   // immutability check needs the same context; read it once, up front.
@@ -205,7 +201,7 @@ export async function runVerify(input: VerifyRunInput): Promise<VerifyRun> {
         class: classResult.class,
         classReasons: classResult.reasons,
         binding: classResult.binding,
-        negativeControl: NEGATIVE_CONTROL,
+        negativeControl,
         doctor: doctorSummary,
       },
       immutability: {
@@ -301,26 +297,46 @@ export async function runVerify(input: VerifyRunInput): Promise<VerifyRun> {
     });
   }
 
-  // Stage 7. The outcomes map is built from the registry, so every declared
-  // check is explicitly `not-executed`; that is the declaration, not a default.
+  // Stage 6. The negative control runs every enforced check in an isolated
+  // copy. A stage that cannot execute is a gate failure; a non-proof outcome is
+  // a product finding and the rule is blocked by the roll-up.
+  const negative = await runNegativeControl({
+    registry,
+    root,
+    adapters: prepared.adapter === undefined ? [] : [prepared.adapter],
+    discovered: discovery.checks,
+  });
+  if (negative.errors.length > 0) {
+    return publish({
+      verdicts: { checks: [], rules: [], flows: [] },
+      integrity: [...gateFindings, ...productFindings, ...negative.errors, ...doctorFinding],
+      protectedPathsChanged,
+      flagged,
+      exitCode: EXIT.GATE_BROKEN,
+    });
+  }
+  negativeControl = "executed";
+
+  // Stage 7. The outcomes are the ones the executor produced; a green enforced
+  // check without proof becomes `blocked` in the roll-up, never a silent pass.
   const verdicts = computeVerdicts({
     registry,
     discovered: discovery.checks,
     results: executed,
-    outcomes: declaredOutcomes(registry),
+    outcomes: negative.outcomes,
   });
 
   const green = enforcedGreen(verdicts);
   const exitCode =
     gateFindings.length > 0
       ? EXIT.GATE_BROKEN
-      : productFindings.length > 0 || !green
+      : productFindings.length > 0 || negative.findings.length > 0 || !green
         ? EXIT.PRODUCT_BROKEN
         : EXIT.GREEN;
 
   return publish({
     verdicts,
-    integrity: [...gateFindings, ...productFindings, ...doctorFinding],
+    integrity: [...gateFindings, ...productFindings, ...negative.findings, ...doctorFinding],
     protectedPathsChanged,
     flagged,
     exitCode,
@@ -352,17 +368,6 @@ async function execute(
     if (reported !== null) return alignReportResults(context.discovery.checks, reported);
   }
   return await context.runner.run(context.discovery.checks, { root: context.root });
-}
-
-/** Every registry-declared check id, explicitly not executed (R64). */
-function declaredOutcomes(registry: Registry): Map<string, SabotageOutcome> {
-  const outcomes = new Map<string, SabotageOutcome>();
-  const declare = (id: string): void => {
-    outcomes.set(id, { status: "not-executed" });
-  };
-  for (const rule of registry.rules) for (const check of rule.checks) declare(check.id);
-  for (const flow of registry.flows) for (const check of flow.checks) declare(check.id);
-  return outcomes;
 }
 
 /** Stages 5–7: only an enforced rule or any flow can redden the product. */

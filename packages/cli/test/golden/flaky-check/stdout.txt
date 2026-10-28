@@ -1,1 +1,1 @@
-0 rules green, 1 not green, class G3, negative control declared-only
+0 rules green, 1 not green, class G3, negative control executed

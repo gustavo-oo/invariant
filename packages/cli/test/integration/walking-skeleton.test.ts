@@ -62,11 +62,11 @@ describe("walking skeleton (spec §10)", () => {
     );
     expect(report.rules.find((rule) => rule.rule_id === "EXAMPLE-001")).toMatchObject({
       verdict: "pass",
-      sabotage_verified: false,
+      sabotage_verified: true,
     });
     expect(report.guarantee).toMatchObject({
       class: "G3",
-      negative_control: "declared-only",
+      negative_control: "executed",
     });
     await expectGolden("walking-skeleton", report, "report.json");
     await expectGolden(

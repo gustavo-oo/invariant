@@ -13,7 +13,7 @@ describe("SELF-003", () => {
     const { root, baseSha } = await makeGitRepo({
       "package.json": JSON.stringify({ name: "self-003", type: "module", private: true }),
       "rules/sales.yaml": capability("SALES-004"),
-      "src/sale.test.ts": `import { expect, test } from "vitest";\n\n// @check sales.rejects-insufficient-stock\n// @rule SALES-004\n// @negative-control .invariant/sabotages/sales/stock.ts\ntest("rejects insufficient stock", () => { expect(1).toBe(1); });\n`,
+      "src/sale.test.ts": `import { expect, test } from "vitest";\nimport { policy } from "./stock-policy";\n\n// @check sales.rejects-insufficient-stock\n// @rule SALES-004\n// @negative-control .invariant/sabotages/sales/stock.ts\ntest("rejects insufficient stock", () => { expect(policy().available()).toBe(1); });\n`,
       ".invariant/sabotages/sales/stock.ts":
         "// @seam-alias src/stock-policy.ts\nexport const policy = () => ({ available: () => Infinity });\n",
       "src/stock-policy.ts": "export const policy = () => ({ available: () => 1 });\n",

@@ -18,7 +18,7 @@
       "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
     ],
     "binding": false,
-    "negative_control": "declared-only",
+    "negative_control": "executed",
     "doctor": {
       "ran": false,
       "class": "G3",
@@ -57,7 +57,8 @@
       "verdict": "pass",
       "reason": "check.passed",
       "negative_control": {
-        "status": "not-executed"
+        "status": "applied",
+        "classification": "assertion"
       }
     }
   ],
@@ -73,7 +74,7 @@
       "check_ids": [
         "sales.rejects-insufficient-stock"
       ],
-      "sabotage_verified": false
+      "sabotage_verified": true
     }
   ],
   "flows": [],

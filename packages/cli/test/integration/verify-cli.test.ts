@@ -71,7 +71,7 @@ describe("invariant verify", () => {
     expect(run.exitCode).toBe(0);
     expect(run.stderr).toBe("");
     // R65: the summary counts enforced rules only.
-    expect(run.stdout).toBe("1 rules green, 0 not green, class G3, negative control declared-only\n");
+    expect(run.stdout).toBe("1 rules green, 0 not green, class G3, negative control executed\n");
     await expectGolden("healthy-registry", normalizeReport(run.report!), "report.json");
     await expectGolden("healthy-registry", run.comment!, "comment.md");
   });
@@ -207,12 +207,12 @@ describe("invariant verify", () => {
     expect(run.stdout).toContain("class G1");
   });
 
-  it("never claims G1 without a doctor result and records declared-only negative control", async () => {
+  it("never claims G1 without a doctor result and records the executed negative control", async () => {
     const run = await runFixture("healthy-registry", { args: ["verify"], env: hermeticEnv() });
 
     expect(run.report?.guarantee.class).toBe("G3");
-    expect(run.report?.guarantee.negative_control).toBe("declared-only");
-    expect(run.report?.rules.every((rule) => rule.sabotage_verified === false)).toBe(true);
+    expect(run.report?.guarantee.negative_control).toBe("executed");
+    expect(run.report?.rules.every((rule) => rule.sabotage_verified === true)).toBe(true);
   });
 
   it("emits no rule verdicts when stage 1 fails (R63)", async () => {

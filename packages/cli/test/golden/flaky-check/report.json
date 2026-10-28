@@ -18,7 +18,7 @@
       "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
     ],
     "binding": false,
-    "negative_control": "declared-only",
+    "negative_control": "executed",
     "doctor": {
       "ran": false,
       "class": "G3",
@@ -42,7 +42,15 @@
     "protected_paths_changed": [],
     "flagged": false
   },
-  "integrity": [],
+  "integrity": [
+    {
+      "code": "negative.sabotage_not_applied",
+      "message": "check sales.is-idempotent stayed green under its sabotage; the seam was not exercised or the sabotage is a no-op",
+      "file": ".invariant/sabotages/sales/idempotency.ts",
+      "rule_id": "SALES-007",
+      "check_id": "sales.is-idempotent"
+    }
+  ],
   "checks": [
     {
       "check_id": "sales.is-idempotent",
@@ -57,7 +65,7 @@
       "verdict": "flaky",
       "reason": "check.flaky",
       "negative_control": {
-        "status": "not-executed"
+        "status": "not-applied"
       }
     }
   ],
