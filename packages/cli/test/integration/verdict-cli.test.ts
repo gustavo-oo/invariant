@@ -343,6 +343,10 @@ describe("invariant verdict", () => {
     expect(report.flows).toEqual([]);
     const comment = await readFile(path.join(root, "invariant-comment.md"), "utf8");
     expect(comment).not.toContain("rule_no_check");
+    // The registry does declare an enforced rule; the gate, not the registry,
+    // stopped the run.
+    expect(comment).not.toContain("No enforced rules are declared");
+    expect(comment).toContain("### Gate failures");
   });
 
   it("gates a class regression against the recorded baseline", async () => {

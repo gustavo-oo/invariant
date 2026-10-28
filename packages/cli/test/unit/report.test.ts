@@ -271,18 +271,24 @@ describe("renderComment (spec §8 stage 8)", () => {
 
     const lines = md.split("\n");
     expect(lines).toContain("### Gate failures");
-    expect(lines).toContain("- upstream.job_cancelled — invariant-registry was cancelled");
+    expect(lines).toContain(
+      "- `invariant-registry/registry-result.json` upstream.job_cancelled — invariant-registry was cancelled",
+    );
     // Cells go through the existing escaping, so a hostile message cannot break
     // the list or open a code span.
-    expect(lines).toContain("- upstream.artifact_missing — artifact \\| not \\`found\\`");
+    expect(lines).toContain(
+      "- `invariant-checks/checks-result.json` upstream.artifact_missing — artifact \\| not \\`found\\`",
+    );
 
     const warning = md.indexOf("**No guarantee is claimed by this run.**");
     const noRules = md.indexOf("No enforced rules are declared");
     const section = md.indexOf("### Gate failures");
     const table = md.indexOf("| Flow | Verdict | Step | Rule | Verdict | Check | Reason |");
     expect(warning).toBeGreaterThanOrEqual(0);
-    expect(noRules).toBeGreaterThan(warning);
-    expect(section).toBeGreaterThan(noRules);
+    // A red gate suppresses the zero-rules notice (see the dedicated test), so
+    // the failure list follows the class warning directly.
+    expect(noRules).toBe(-1);
+    expect(section).toBeGreaterThan(warning);
     expect(table).toBeGreaterThan(section);
   });
 
@@ -295,6 +301,42 @@ describe("renderComment (spec §8 stage 8)", () => {
         }),
       );
       expect(md).not.toContain("### Gate failures");
+    }
+  });
+
+  it("falls back to the fileless gate line when a finding carries no file", () => {
+    const md = renderComment(
+      reportWith({
+        exitCode: 2,
+        integrity: [{ code: "gate.unknown", message: "no artifact to name", file: "" }],
+      }),
+    );
+    expect(md.split("\n")).toContain("- gate.unknown — no artifact to name");
+  });
+
+  it("does not claim 'no enforced rules' when the gate itself failed", () => {
+    const red = renderComment(
+      reportWith({
+        exitCode: 2,
+        enforcedRules: 0,
+        integrity: [
+          {
+            code: "integrity.discovery_error",
+            message: "adapter no-such-adapter is not installed",
+            file: ".invariant/config.yaml",
+          },
+        ],
+      }),
+    );
+    const redLines = red.split("\n");
+    // The gate stopped the run before any rule could be evaluated; "no enforced
+    // rules are declared" would describe the registry, not the failure.
+    expect(redLines).not.toContain("No enforced rules are declared");
+    expect(redLines).toContain("### Gate failures");
+
+    for (const exitCode of [0, 1] as const) {
+      const md = renderComment(reportWith({ exitCode, enforcedRules: 0 }));
+      expect(md.split("\n")).toContain("No enforced rules are declared");
     }
   });
 });

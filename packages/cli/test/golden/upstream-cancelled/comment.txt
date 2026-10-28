@@ -10,7 +10,7 @@ Seam sabotage is NOT executed in this delivery (Phase 2). No rule is proven able
 
 ### Gate failures
 
-- upstream.job_cancelled — invariant-registry was cancelled
+- `invariant-registry/registry-result.json` upstream.job_cancelled — invariant-registry was cancelled
 
 | Flow | Verdict | Step | Rule | Verdict | Check | Reason |
 | --- | --- | --- | --- | --- | --- | --- |

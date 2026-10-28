@@ -31,8 +31,11 @@ export function renderComment(report: Report): string {
   if (guarantee.negative_control === "declared-only") blocks.push(DECLARED_ONLY_BANNER);
   if (guarantee.class !== "G1") blocks.push(CLASS_WARNING);
 
+  // A gate failure stopped the run before any rule could be evaluated: "No
+  // enforced rules are declared" would describe the registry, not the failure
+  // the `### Gate failures` section is about. Keep it for real 0/1 runs.
   const enforced = report.rules.filter((rule) => rule.status === "enforced").length;
-  if (enforced === 0) blocks.push(NO_ENFORCED_RULES);
+  if (enforced === 0 && report.exit_code !== 2) blocks.push(NO_ENFORCED_RULES);
 
   if (report.exit_code === 2 && report.integrity.length > 0) {
     blocks.push(renderGateFailures(report.integrity));
@@ -151,13 +154,15 @@ function ruleText(rule: WireRuleVerdict | undefined, ruleId: string): string {
  * The gate's own failure list (R51). A cancelled worker or a missing artifact
  * makes the report exit 2 with no product verdict to explain it; without this
  * section the rule table would render all-green and the reason would live only
- * in the JSON artifact. Codes and messages are data from upstream artifacts, so
- * they are escaped like any other cell.
+ * in the JSON artifact. Each line names the artifact it is about, because two
+ * missing artifacts otherwise render identically. Codes, files and messages are
+ * data from upstream artifacts, so they are escaped like any other cell.
  */
 function renderGateFailures(findings: WireFinding[]): string {
   const lines = ["### Gate failures", ""];
   for (const finding of findings) {
-    lines.push(`- ${cell(finding.code)} — ${cell(finding.message)}`);
+    const file = finding.file === "" ? "" : `\`${cell(finding.file)}\` `;
+    lines.push(`- ${file}${cell(finding.code)} — ${cell(finding.message)}`);
   }
   return lines.join("\n");
 }

@@ -85,10 +85,9 @@ Fail-closed upstream contract:
 Exit codes:
   0  Every upstream artifact is green and every check, enforced rule and flow passed.
   1  The upstream artifacts are complete, but a check, enforced rule or flow did not pass.
-  2  An upstream job is missing/cancelled/skipped/failed (other than a failed
-     checks job with a readable artifact), an artifact is missing or malformed,
-     discovery failed, the registry is invalid, or the class regressed against
-     --baseline.
+  2  An upstream job is missing/cancelled/skipped or failed without explaining the
+     failure, an artifact is missing or malformed, discovery failed, the registry
+     is invalid, or the class regressed against --baseline.
 `;
 
 /** The three worker jobs the CI contract fixes (R49), in aggregation order. */
