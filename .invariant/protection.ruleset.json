@@ -3,14 +3,22 @@
   "target": "branch",
   "enforcement": "active",
   "conditions": {
-    "ref_name": { "include": ["~DEFAULT_BRANCH"] }
+    "ref_name": {
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": []
+    }
   },
   "rules": [
     {
       "type": "required_status_checks",
       "parameters": {
         "required_status_checks": [
-          { "context": "invariant-verdict", "integration_id": 15368 }
+          {
+            "context": "invariant-verdict",
+            "integration_id": 15368
+          }
         ],
         "strict_required_status_checks_policy": true
       }
@@ -24,7 +32,9 @@
         "require_last_push_approval": false
       }
     },
-    { "type": "non_fast_forward" }
+    {
+      "type": "non_fast_forward"
+    }
   ],
   "bypass_actors": []
 }
