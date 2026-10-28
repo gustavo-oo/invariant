@@ -1,0 +1,16 @@
+{
+  "testResults": [
+    {
+      "name": "src/sales.test.ts",
+      "assertionResults": [
+        {
+          "fullName": "sales is idempotent when submitted twice",
+          "ancestorTitles": ["sales"],
+          "title": "is idempotent when submitted twice",
+          "status": "passed",
+          "retryCount": 2
+        }
+      ]
+    }
+  ]
+}

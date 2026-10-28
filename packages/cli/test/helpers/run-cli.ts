@@ -68,8 +68,15 @@ export async function spawnCli(
 /**
  * Copy `test/fixtures/<name>` to a fresh temp directory and run the CLI there.
  * Defaults to the `validate` command; pass `args` for other commands.
+ *
+ * `env` is the child's complete environment (default: the test's own), so a
+ * caller that needs a hermetic CI context can supply a scrubbed copy instead of
+ * relying on what the developer's shell or the Actions runner exported.
  */
-export async function runFixture(name: string, opts: { args?: string[] } = {}): Promise<FixtureRun> {
+export async function runFixture(
+  name: string,
+  opts: { args?: string[]; env?: NodeJS.ProcessEnv } = {},
+): Promise<FixtureRun> {
   const holder = await mkdtemp(path.join(tmpdir(), "invariant-fixture-"));
   const copy = path.join(holder, name);
   await cp(path.join(FIXTURES, name), copy, { recursive: true });
@@ -78,7 +85,7 @@ export async function runFixture(name: string, opts: { args?: string[] } = {}): 
   // execute offline, exactly like `makeVitestRepo` does.
   await linkNodeModules(root);
 
-  const run = await spawnCli(opts.args ?? ["validate"], { cwd: root });
+  const run = await spawnCli(opts.args ?? ["validate"], { cwd: root, env: opts.env });
   return {
     ...run,
     report: await readReport(root),

@@ -19,9 +19,10 @@ import path from "node:path";
 import type { CheckResult } from "../adapter/api.js";
 import { loadConfig } from "../config/load.js";
 import type { DiscoveredCheck, DiscoveryError } from "../discovery/types.js";
+import { readDoctorEvidence } from "../doctor/evidence.js";
 import { EXIT, type ExitCode } from "../exit.js";
 import { readText, toPosix } from "../fsutil.js";
-import { computeClass, type ClassFinding, type GuaranteeClass } from "../guarantee/class.js";
+import { classRank, computeClass, type GuaranteeClass } from "../guarantee/class.js";
 import { stringifyJson, writeOut, type CliIo } from "../output.js";
 import { loadRegistry } from "../registry/load.js";
 import type { Finding } from "../registry/model.js";
@@ -439,7 +440,12 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
   const discoveryFindings = discovery.errors.map(discoveryFinding);
 
   const upstream = await readStageResults(path.resolve(io.cwd, options.inputs), options.jobStatuses);
-  const doctor = await readDoctor(options, io.cwd);
+  const doctor = await readDoctorEvidence({
+    doctorResult: options.doctorResult,
+    repo: options.repo,
+    runId: options.runId,
+    cwd: io.cwd,
+  });
 
   let baseline: GuaranteeClass | null;
   try {
@@ -473,7 +479,7 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
 
   const classResult = computeClass({
     observationAvailable: doctor.ran && doctor.observation === "available",
-    // R52: `readDoctor` already reduced the artifact to its `severity: "fail"`
+    // R52: `readDoctorEvidence` already reduced the artifact to its `severity: "fail"`
     // findings. `info` findings describe the observation, they do not lower it.
     protectionFindings: doctor.findings,
     credentialBoundary: config.credentialBoundary !== "none",
@@ -587,151 +593,6 @@ function duplicateStatusFinding(job: string): Finding {
   };
 }
 
-interface DoctorRead {
-  ran: boolean;
-  observation: "available" | "unavailable";
-  /** The artifact's `severity: "fail"` findings, the only input `computeClass` sees. */
-  findings: ClassFinding[];
-  /** `doctor.result_mismatch` when the envelope or the file is unusable. */
-  finding: Finding | null;
-}
-
-/**
- * R52: the plan's `DoctorResult` is **flat** (plan line 1371): the observation
- * carries its own availability and the findings carry a severity. Anything that
- * does not match that shape — including the nested `{doctor: {...}}` envelope an
- * earlier revision invented — is unusable, because a class read from it would be
- * a claim about a document nothing in the pipeline produces.
- *
- * `ran` is `observation.available`, and only `severity: "fail"` findings reach
- * `computeClass`: `info` findings describe the observation (a merge queue whose
- * state is unknown, for instance) and must not lower the class.
- *
- * The envelope is the artifact's own top-level `repo`/`run_id`. A missing
- * expectation is as unverifiable as a disagreeing one: without it a stale
- * artifact from another run could still yield G1.
- */
-async function readDoctor(options: Options, cwd: string): Promise<DoctorRead> {
-  if (options.doctorResult === null) {
-    return { ran: false, observation: "unavailable", findings: [], finding: null };
-  }
-
-  const file = toPosix(options.doctorResult);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readText(path.resolve(cwd, options.doctorResult)));
-  } catch (cause) {
-    return unusableDoctor(
-      file,
-      isNotFound(cause)
-        ? "doctor result not found"
-        : `doctor result is unreadable or not valid JSON: ${errorMessage(cause)}`,
-    );
-  }
-
-  const doctor = doctorShape(parsed);
-  if (doctor === null) {
-    return unusableDoctor(
-      file,
-      "doctor result is not a flat DoctorResult {schema_version, repo, run_id, class, reasons, findings, observation}",
-    );
-  }
-
-  const problems = envelopeProblems(parsed as Record<string, unknown>, options);
-  if (problems.length > 0) {
-    // Unverifiable, never G1: the findings were read from a result this run
-    // cannot attribute to itself, so the class is computed without them.
-    return {
-      ran: false,
-      observation: "unavailable",
-      findings: [],
-      finding: { code: "doctor.result_mismatch", message: problems.join("; "), file },
-    };
-  }
-
-  return {
-    ran: doctor.available,
-    observation: doctor.available ? "available" : "unavailable",
-    findings: doctor.findings,
-    finding: null,
-  };
-}
-
-function unusableDoctor(file: string, message: string): DoctorRead {
-  return {
-    ran: false,
-    observation: "unavailable",
-    findings: [],
-    finding: { code: "doctor.result_mismatch", message, file },
-  };
-}
-
-function envelopeProblems(artifact: Record<string, unknown>, options: Options): string[] {
-  const problems: string[] = [];
-  if (options.repo === null) {
-    problems.push(
-      "--doctor-result was supplied without --repo, so the observation cannot be attributed to this repository",
-    );
-  } else {
-    const actual = artifact["repo"];
-    if (typeof actual !== "string") {
-      problems.push(`doctor result has no repo, expected ${JSON.stringify(options.repo)}`);
-    } else if (actual !== options.repo) {
-      problems.push(`doctor result repo is ${JSON.stringify(actual)}, expected ${JSON.stringify(options.repo)}`);
-    }
-  }
-  if (options.runId === null) {
-    problems.push(
-      "--doctor-result was supplied without --run-id, so a stale observation cannot be ruled out",
-    );
-  } else {
-    const actual = artifact["run_id"];
-    if (typeof actual !== "string") {
-      problems.push(`doctor result has no run_id, expected ${JSON.stringify(options.runId)}`);
-    } else if (actual !== options.runId) {
-      problems.push(`doctor result run_id is ${JSON.stringify(actual)}, expected ${JSON.stringify(options.runId)}`);
-    }
-  }
-  return problems;
-}
-
-interface DoctorShape {
-  available: boolean;
-  findings: ClassFinding[];
-}
-
-/** The flat `DoctorResult` guard; `null` means the document is unusable. */
-function doctorShape(value: unknown): DoctorShape | null {
-  if (!isRecord(value)) return null;
-  if (value["schema_version"] !== 1) return null;
-  if (!isNullableString(value["repo"])) return null;
-  if (!isNullableString(value["run_id"])) return null;
-  if (!isClass(value["class"])) return null;
-  if (!Array.isArray(value["reasons"]) || !value["reasons"].every((reason) => typeof reason === "string")) {
-    return null;
-  }
-  if (!Array.isArray(value["findings"])) return null;
-  const findings: ClassFinding[] = [];
-  for (const finding of value["findings"]) {
-    if (!isRecord(finding) || typeof finding["code"] !== "string" || typeof finding["message"] !== "string") {
-      return null;
-    }
-    const severity = finding["severity"];
-    if (severity !== "fail" && severity !== "info") return null;
-    if (severity === "fail") findings.push({ code: finding["code"], message: finding["message"] });
-  }
-
-  const observation = value["observation"];
-  if (!isRecord(observation) || typeof observation["available"] !== "boolean") return null;
-  if (observation["available"]) {
-    if (!isRecord(observation["repo"]) || !isRecord(observation["protection"])) return null;
-  } else if (typeof observation["reason"] !== "string") {
-    return null;
-  }
-
-  return { available: observation["available"], findings };
-}
-
 /** R53: PEND-6 puts the regression decision here, never in the workflow. */
 async function readBaseline(file: string | null, cwd: string): Promise<GuaranteeClass | null> {
   if (file === null) return null;
@@ -747,14 +608,12 @@ async function readBaseline(file: string | null, cwd: string): Promise<Guarantee
   return parsed["recorded_class"];
 }
 
-const CLASS_RANK: Record<GuaranteeClass, number> = { G3: 0, G2: 1, G1: 2 };
-
 function regressionFindings(
   recorded: GuaranteeClass,
   current: GuaranteeClass,
   file: string,
 ): Finding[] {
-  if (CLASS_RANK[current] >= CLASS_RANK[recorded]) return [];
+  if (classRank(current) >= classRank(recorded)) return [];
   return [
     {
       code: "baseline.regressed",
@@ -870,10 +729,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isClass(value: unknown): value is GuaranteeClass {
   return value === "G1" || value === "G2" || value === "G3";
-}
-
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === "string";
 }
 
 function describe(value: unknown): string {

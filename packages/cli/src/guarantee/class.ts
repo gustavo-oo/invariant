@@ -10,6 +10,18 @@
 /** The three guarantee classes. G3 is never a guarantee. */
 export type GuaranteeClass = "G1" | "G2" | "G3";
 
+/**
+ * G1 > G2 > G3, the only ordering the baseline regression gate may use.
+ * Exported so `verdict` and `verify` compare a recorded class and a current
+ * class the same way instead of each carrying its own table (R61).
+ */
+const CLASS_RANK: Record<GuaranteeClass, number> = { G3: 0, G2: 1, G1: 2 };
+
+/** The rank of a class; a higher number is a stronger guarantee. */
+export function classRank(cls: GuaranteeClass): number {
+  return CLASS_RANK[cls];
+}
+
 /** A protection problem, reduced to what the class decision needs. */
 export interface ClassFinding {
   code: string;

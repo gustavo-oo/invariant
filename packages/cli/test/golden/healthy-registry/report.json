@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "invariant",
+    "version": "<version>"
+  },
+  "inputs": {
+    "mode": "local",
+    "base": null,
+    "head": null,
+    "repo": null,
+    "run_id": null
+  },
+  "guarantee": {
+    "class": "G3",
+    "class_reasons": [
+      "Branch-protection observation is unavailable, so the class cannot be G1.",
+      "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+    ],
+    "binding": false,
+    "negative_control": "declared-only",
+    "doctor": {
+      "ran": false,
+      "class": "G3",
+      "reasons": [
+        "Branch-protection observation is unavailable, so the class cannot be G1.",
+        "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+      ],
+      "findings": [],
+      "observation": "unavailable"
+    }
+  },
+  "registry": {
+    "files": [
+      "rules/sales.yaml"
+    ],
+    "hashes": {
+      "rules/sales.yaml": "sha256:8a38f1b7d52c27cfbfce4b36c825fdafe25574d882f9c67ade22832a47c73ff2"
+    }
+  },
+  "immutability": {
+    "protected_paths_changed": [],
+    "flagged": false
+  },
+  "integrity": [],
+  "checks": [
+    {
+      "check_id": "sales.rejects-insufficient-stock",
+      "rule_ids": [
+        "SALES-004"
+      ],
+      "flow_refs": [],
+      "layer": "integration",
+      "file": "src/checkout.test.ts",
+      "line": 7,
+      "runtime_id": "sales > is rejected when stock is insufficient",
+      "verdict": "pass",
+      "reason": "check.passed",
+      "negative_control": {
+        "status": "not-executed"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "SALES-004",
+      "statement": "A sale MUST NOT complete when stock is insufficient.",
+      "capability": "sales",
+      "criticality": "critical",
+      "status": "enforced",
+      "verdict": "pass",
+      "reason": "check.passed",
+      "check_ids": [
+        "sales.rejects-insufficient-stock"
+      ],
+      "sabotage_verified": false
+    }
+  ],
+  "flows": [],
+  "exit_code": 0
+}

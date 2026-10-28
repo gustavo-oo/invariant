@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { run } from "./commands/run.js";
 import { validate } from "./commands/validate.js";
 import { verdict } from "./commands/verdict.js";
+import { verify } from "./commands/verify.js";
 import { EXIT, type ExitCode } from "./exit.js";
 import { defaultIo, type CliIo } from "./output.js";
 
@@ -19,8 +20,8 @@ invariant verdict   --inputs <dir> [--job-status <job>=<result>]... [--doctor-re
                     [--repo <owner/name>] [--run-id <id>] [--baseline <file>]
                     [--root <dir>] [--out <file>] [--comment <file>] [--base <ref>] [--head <sha>]
 invariant verify    [--root <dir>] [--adapter <id>] [--base <ref>] [--head <sha>] [--event <path>]
-                    [--doctor-result <file>] [--repo <owner/name>] [--run-id <id>]
-                    [--out <file>] [--comment <file>] [--json]
+                    [--reports <file>]... [--doctor-result <file>] [--repo <owner/name>]
+                    [--run-id <id>] [--baseline <file>] [--out <file>] [--comment <file>] [--json]
 invariant doctor    [--root <dir>] [--record] [--strict] [--check <name>] [--json] [--out <file>]
 invariant init      [dir] --owner <@handle> [--adapter <id>] [--cli-setup <cmd>] [--invariant-cmd <cmd>]
 
@@ -44,6 +45,7 @@ const COMMANDS: Record<string, Command> = {
   validate,
   run,
   verdict,
+  verify,
 };
 
 export async function runCli(argv: string[], io: CliIo = defaultIo()): Promise<ExitCode> {
