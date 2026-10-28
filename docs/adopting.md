@@ -112,7 +112,45 @@ Use `doctor --strict` if you want a human-facing command to exit `1` whenever
 the class is below G1. In CI, `invariant-verdict` is the gate; the workflow
 never interprets the doctor's exit code.
 
-## 6. Wire the gate
+## Optional: raise the class to G1
+
+G3 is honest and the ruleset still blocks merges. G1 is stronger because the
+doctor has **observed** the protection. This step is optional; do it after the
+ruleset is imported and the first green gate run.
+
+1. Create a fine-grained personal access token:
+   **Settings → Developer settings → Personal access tokens → Fine-grained
+   tokens**, scoped to this repository, with **Administration: read** and
+   **Metadata: read**. The default `GITHUB_TOKEN` cannot read rulesets or branch
+   protection.
+2. Export the repository and token in your shell (the token is not written to
+   disk by the script):
+   ```bash
+   export GITHUB_REPOSITORY=owner/repo
+   export INVARIANT_DOCTOR_TOKEN=github_pat_...
+   ```
+3. In this repository, run the optional helper. It verifies the class, stores
+   the secret if asked, and records the baseline:
+   ```bash
+   scripts/enable-g1.sh --check          # verify only; no secret, no baseline
+   scripts/enable-g1.sh --set-secret     # verify G1, store the secret, record
+   ```
+   If you installed the CLI from npm instead, run the same two commands:
+   ```bash
+   npx invariant doctor --json --repo "$GITHUB_REPOSITORY" --run-id local
+   npx invariant doctor --record
+   ```
+4. Commit `.invariant/protection-baseline.json` through a pull request. If the
+   ruleset already requires a review and you are the only reviewer, temporarily
+   disable the ruleset for this bootstrap commit, re-enable it immediately, and
+   confirm `invariant doctor --strict` exits `0` with `class: G1`.
+
+The script never creates the PAT. It refuses to record a baseline unless the
+doctor actually observed G1, so a missing permission cannot silently produce a
+G1 claim. The environment in this repository was verified as G1-capable with a
+token held only in the process environment; the CI class remains G3 until the
+secret is stored.
+
 
 The generated workflow runs four jobs:
 

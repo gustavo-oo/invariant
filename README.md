@@ -114,6 +114,8 @@ A missing observation, a missing required check, a weak or unpinned check, a
 missing code-owner rule or a growing bypass list lowers the class; it is never
 silently ignored. Record the observed environment with
 `invariant doctor --record`; `verdict` gates a regression against that baseline.
+For the optional step that raises the class from G3 to G1, see
+[the adoption guide](docs/adopting.md#optional-raise-the-class-to-g1).
 
 ## Live instance
 

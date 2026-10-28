@@ -74,7 +74,22 @@ not G1: the repository has no `INVARIANT_DOCTOR_TOKEN` secret, so the doctor
 cannot observe branch protection and honestly reports `observation:
 unavailable`. G3 must never be described as a guarantee.
 
-To raise the baseline to G1, the repository owner must:
+The environment itself was verified as **G1-capable** with a token held only in
+the process environment:
+
+```
+observation: available
+protection: ruleset
+class: G1 (observed)
+```
+
+The only missing piece for CI is the repository secret. The optional
+`scripts/enable-g1.sh` helper verifies the observation, stores the secret only
+when asked, and records the baseline; see
+[the adoption guide](adopting.md#optional-raise-the-class-to-g1). The session's
+`gh` OAuth token was **not** stored as a repository secret.
+
+To raise the baseline to G1 manually:
 
 1. create a fine-grained PAT with **Administration: read** and **Metadata:
    read** (the default `GITHUB_TOKEN` cannot read rulesets or branch
