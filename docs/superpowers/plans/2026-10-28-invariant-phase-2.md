@@ -55,8 +55,9 @@
 4. **A sabotage that does not apply is a false red, never a false green.** A no-op, a compile error, a timeout and a missing target all make the rule `blocked`.
 5. **G3 is not a guarantee.** Phase 2 makes "proven able to fail" true; it does not make a procedural run binding. The class warning stays.
 6. **JUnit is a fallback.** The primary E2E format is Playwright JSON. The JUnit reader maps `testcase name` to `runtimeId`; a JUnit producer that emits leaf-only names will yield `not-run` (never green), and should use JSON instead.
-7. **Only known secret file patterns are excluded.** The sandbox drops `.env*`, key/certificate files and package-manager config; an arbitrary committed secret under another name is out of scope. Repository secret hygiene remains the adopter's responsibility.
-8. **Packaging is not solved here.** The unscoped npm name `invariant` is already taken by `zertosh/invariant` (2.2.4), and `dist/` is gitignored. Until this package is published under a scope, `init`'s default `npm install invariant@<version>` is a placeholder; pass `--cli-setup`/`--invariant-cmd` to point at a local build or a scoped package.
+7. **Vitest's JSON reporter loses the timeout text.** Vitest 3 emits `Error: STACK_TRACE_ERROR` for a timed-out test, so the Vitest adapter may classify a timeout as `harness`. Both are non-proof; the Playwright adapter classifies its own `TimeoutError` as `timeout`. This is a reporting nuance, not a green path.
+8. **Only known secret file patterns are excluded.** The sandbox drops `.env*`, key/certificate files and package-manager config; an arbitrary committed secret under another name is out of scope. Repository secret hygiene remains the adopter's responsibility.
+9. **Packaging is not solved here.** The unscoped npm name `invariant` is already taken by `zertosh/invariant` (2.2.4), and `dist/` is gitignored. Until this package is published under a scope, `init`'s default `npm install invariant@<version>` is a placeholder; pass `--cli-setup`/`--invariant-cmd` to point at a local build or a scoped package.
 
 ## Hazards found while reviewing the current tree (fix before the owning task)
 
@@ -389,10 +390,10 @@ Run: `cd packages/cli && npx vitest run test/unit/negative-sandbox.test.ts` → 
 
 **Interfaces:**
 - Produces: `classifyFailureMessage(outcome: CheckResult["outcome"], message?: string): "assertion" | "harness" | "timeout"`; `applyVitestSabotage(spec: SabotageSpec): Promise<SabotageOutcome>`.
-- Classification rules, in this order: timeout (`/timed out|TimeoutError|Test timeout of \d+ms exceeded/i`), assertion (`/AssertionError|expected .* to (be|equal|include|match|throw|have)/`), harness (everything else). An unknown message is **harness**, never assertion.
+- Classification rules, in this order: timeout (`/timed out|TimeoutError|Test timeout of \d+ms exceeded/i`), assertion (`/AssertionError|expected .* to (be|equal|include|match|throw|have)/`), harness (everything else). An unknown message is **harness**, never assertion. Vitest 3's JSON reporter emits `Error: STACK_TRACE_ERROR` for a timed-out test, so the Vitest adapter may classify that case as `harness`; both are non-proof. The Playwright adapter keeps the explicit `TimeoutError` text.
 - `applySabotage` never reports proof for a `pass`, `not-run` (without a file-level harness error) or `flaky` result. A `fail` result is classified; a `not-run` result with a file-level load/compile error is `applied` + `harness`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/cli/test/unit/vitest-sabotage.test.ts
@@ -440,11 +441,11 @@ it("classifies a broken replacement as harness, never proof", async () => {
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd packages/cli && npx vitest run test/unit/vitest-sabotage.test.ts` → FAIL.
 
-- [ ] **Step 3: Implement the classifier and the adapter method**
+- [x] **Step 3: Implement the classifier and the adapter method**
 
 `failure.ts` owns the three regexes and is shared with Playwright (Part B). `sabotage.ts`:
 
@@ -470,9 +471,9 @@ export async function applyVitestSabotage(spec: SabotageSpec): Promise<SabotageO
 
 `runChecks` must, when the target file has a file-level failure and the target check is absent, return the file's error message on the `not-run` result. Read it from `testResults[].message` / `testResults[].status === "failed"` in the Vitest JSON.
 
-- [ ] **Step 4: Run the tests, then commit**
+- [x] **Step 4: Run the tests, then commit**
 
-Run: `cd packages/cli && npx vitest run test/unit/vitest-sabotage.test.ts` → PASS. Then `git add -A && git commit -m "feat(vitest): applySabotage via module replacement, assertion/harness/timeout classifier"`
+Run: `cd packages/cli && npx vitest run test/unit/vitest-sabotage.test.ts test/unit/vitest-run.test.ts` → PASS (19 tests). The suite pins assertion, no-op, missing target, broken replacement (harness) and the Vitest timeout sentinel (non-proof). Then `git add -A && git commit -m "feat(vitest): applySabotage via module replacement, assertion/harness/timeout classifier"`
 
 ### Task 4: The negative-control executor
 

@@ -232,6 +232,7 @@ it("evaluates presence per check file instead of one global runtimeId set", asyn
     ["same", "pass"],
     ["same", "not-run"],
   ]);
+  expect(results.find((result) => result.outcome === "not-run")?.message).toContain("b cannot load");
 });
 
 describe("reporter mapping details", () => {

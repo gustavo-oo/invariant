@@ -69,7 +69,18 @@ export async function runChecks(checks: DiscoveredCheck[], opts: RunOpts): Promi
       const match = located.find(
         (candidate) => candidate.file === file && candidate.result.runtimeId === check.runtimeId,
       );
-      results.push(match?.result ?? { runtimeId: check.runtimeId, outcome: "not-run" });
+      if (match !== undefined) {
+        results.push(match.result);
+        continue;
+      }
+      // A file-level load/compile error still means the check did not run; carry
+      // the error so a sabotaged run can classify it as `harness`, never proof.
+      const message = fileErrorOf(json, root, file);
+      results.push(
+        message === undefined
+          ? { runtimeId: check.runtimeId, outcome: "not-run" }
+          : { runtimeId: check.runtimeId, outcome: "not-run", message },
+      );
     }
     return results;
   } finally {
@@ -119,6 +130,31 @@ function vitestEntry(root: string): string {
 
 function isExitCode(cause: unknown): boolean {
   return typeof (cause as { code?: unknown }).code === "number";
+}
+
+/**
+ * The file-level error Vitest reports when a test file cannot load. The target
+ * check is absent in that case; without this message the sabotaged run would be
+ * indistinguishable from a check that was filtered out.
+ */
+function fileErrorOf(json: unknown, root: string, file: string): string | undefined {
+  if (!isRecord(json) || !Array.isArray(json.testResults)) return undefined;
+  for (const entry of json.testResults) {
+    if (!isRecord(entry) || typeof entry.name !== "string") continue;
+    const relative = toPosix(
+      path.normalize(path.isAbsolute(entry.name) ? path.relative(root, entry.name) : entry.name),
+    );
+    if (relative !== file) continue;
+    if (entry.status !== "failed") return undefined;
+    return typeof entry.message === "string" && entry.message.trim() !== ""
+      ? entry.message
+      : "the test file failed to load";
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function messageOf(cause: unknown): string {
