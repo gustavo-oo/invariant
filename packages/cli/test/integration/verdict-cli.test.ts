@@ -31,6 +31,7 @@ test("is rejected when stock is insufficient", () => {});
 `;
 
 const RUNTIME_ID = "is rejected when stock is insufficient";
+const CHECK_ID = "sales.rejects-insufficient-stock";
 
 /**
  * One worker's real `--json --out` payload. There is no wrapper envelope: the
@@ -56,7 +57,8 @@ async function makeVerdictRepo(
     }),
     "inputs/invariant-negative/negative-result.json": artifact("negative", {
       declared: 1,
-      executed: false,
+      executed: true,
+      outcomes: { [CHECK_ID]: { status: "applied", classification: "assertion" } },
     }),
     ...extra,
   };

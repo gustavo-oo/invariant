@@ -54,6 +54,11 @@
       "file": "invariant-negative/negative-result.json"
     },
     {
+      "code": "upstream.negative_not_executed",
+      "message": "the negative control did not execute; no enforced rule is proven",
+      "file": "invariant-negative/negative-result.json"
+    },
+    {
       "code": "upstream.job_missing",
       "message": "invariant-registry has no --job-status entry; a missing job is never a pass",
       "file": "invariant-registry/registry-result.json"

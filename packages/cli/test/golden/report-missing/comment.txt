@@ -12,6 +12,7 @@ Seam sabotage is NOT executed in this delivery (Phase 2). No rule is proven able
 
 - `invariant-checks/checks-result.json` upstream.artifact_missing — artifact not found
 - `invariant-negative/negative-result.json` upstream.job_missing — invariant-negative has no --job-status entry; a missing job is never a pass
+- `invariant-negative/negative-result.json` upstream.negative_not_executed — the negative control did not execute; no enforced rule is proven
 - `invariant-registry/registry-result.json` upstream.job_missing — invariant-registry has no --job-status entry; a missing job is never a pass
 
 | Flow | Verdict | Step | Rule | Verdict | Check | Reason |

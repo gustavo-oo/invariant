@@ -225,14 +225,49 @@ describe("readStageResults", () => {
     expect(read.findings).toEqual([finding]);
   });
 
-  it("accepts the extended negative payload and records declared/executed", async () => {
+  it("accepts the extended negative payload and records declared/executed/outcomes", async () => {
     const inputs = await makeInputs({
-      "invariant-negative": artifact("invariant-negative", { declared: 2, executed: true }),
+      "invariant-negative": artifact("invariant-negative", { declared: 2, executed: true, outcomes: {} }),
     });
     const read = await readStageResults(inputs, statuses());
 
     expect(read.findings).toEqual([]);
-    expect(read.results[2]?.negative).toEqual({ declared: 2, executed: true, findings: [] });
+    expect(read.results[2]?.negative).toEqual({
+      declared: 2,
+      executed: true,
+      outcomes: {},
+      findings: [],
+    });
+  });
+
+  it("accepts a failed negative job whose artifact reports executed: true", async () => {
+    const inputs = await makeInputs({
+      "invariant-negative": artifact("invariant-negative", {
+        declared: 1,
+        executed: true,
+        outcomes: { "sales.a": { status: "applied", classification: "assertion" } },
+      }),
+    });
+    const read = await readStageResults(inputs, statuses({ "invariant-negative": "failure" }));
+
+    expect(read.findings).toEqual([]);
+    expect(read.results.find((result) => result.stage === "negative")?.negative).toMatchObject({
+      executed: true,
+    });
+  });
+
+  it("rejects an applied outcome with an unknown classification", async () => {
+    const inputs = await makeInputs({
+      "invariant-negative": artifact("invariant-negative", {
+        declared: 1,
+        executed: true,
+        outcomes: { "sales.a": { status: "applied", classification: "boom" } },
+      }),
+    });
+    const read = await readStageResults(inputs, statuses());
+
+    expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
+    expect(read.findings[0]?.message).toContain("classification");
   });
 
   it("rejects a negative payload where declared and executed disagree on presence", async () => {

@@ -44,6 +44,11 @@
   },
   "integrity": [
     {
+      "code": "upstream.negative_not_executed",
+      "message": "the negative control did not execute; no enforced rule is proven",
+      "file": "invariant-negative/negative-result.json"
+    },
+    {
       "code": "upstream.job_cancelled",
       "message": "invariant-registry was cancelled",
       "file": "invariant-registry/registry-result.json"
@@ -60,8 +65,8 @@
       "file": "src/sales.test.ts",
       "line": 5,
       "runtime_id": "is rejected when stock is insufficient",
-      "verdict": "pass",
-      "reason": "check.passed",
+      "verdict": "blocked",
+      "reason": "check.blocked",
       "negative_control": {
         "status": "not-executed"
       }
@@ -74,8 +79,8 @@
       "capability": "sales",
       "criticality": "critical",
       "status": "enforced",
-      "verdict": "pass",
-      "reason": "check.passed",
+      "verdict": "blocked",
+      "reason": "check.blocked",
       "check_ids": [
         "sales.rejects-insufficient-stock"
       ],

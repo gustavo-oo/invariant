@@ -26,13 +26,14 @@ import { readText, toPosix } from "../fsutil.js";
 import { classRank, computeClass, type GuaranteeClass } from "../guarantee/class.js";
 import { stringifyJson, writeOut, type CliIo } from "../output.js";
 import { loadRegistry } from "../registry/load.js";
-import type { Finding } from "../registry/model.js";
+import type { Finding, Registry } from "../registry/model.js";
 import { validateRegistry } from "../registry/validate.js";
 import { renderComment } from "../report/comment.js";
 import type { DoctorSummary, NegativeControlMode } from "../report/shape.js";
 import { buildReport } from "../report/write.js";
 import { createDiscoverySource } from "../seams/discovery-source.js";
 import { computeVerdicts } from "../verdict/compute.js";
+import type { SabotageOutcome } from "../verdict/types.js";
 import { TOOL_VERSION } from "../version.js";
 
 const HELP = `invariant verdict - aggregate the upstream jobs into one fail-closed verdict
@@ -122,7 +123,12 @@ export interface StageResult {
   job: string;
   findings: Finding[];
   checks?: CheckResult[];
-  negative?: { declared: number; executed: boolean; findings: Finding[] };
+  negative?: {
+    declared: number;
+    executed: boolean;
+    outcomes: Record<string, SabotageOutcome>;
+    findings: Finding[];
+  };
 }
 
 /** The outcomes a checks artifact may carry; anything else is a shape mismatch. */
@@ -167,6 +173,7 @@ export async function readStageResults(
     }
 
     const checksFailed = expected.stage === "checks" && status === "failure";
+    const negativeFailed = expected.stage === "negative" && status === "failure";
 
     const read = await readStageResult(
       path.join(inputsDir, expected.job, ARTIFACTS[expected.stage]),
@@ -174,15 +181,20 @@ export async function readStageResults(
       file,
     );
     if (!read.ok) {
-      // A failed checks job must explain itself through a red artifact. Without
-      // one, the artifact is missing *and* the failure is unexplained.
+      // A failed checks/negative job must explain itself through its artifact.
+      // Without one, the artifact is missing *and* the failure is unexplained.
       if (checksFailed) findings.push(unexplainedChecksFailure(expected.job, file));
+      if (negativeFailed) findings.push(unexplainedNegativeFailure(expected.job, file));
       findings.push(read.finding);
       continue;
     }
 
     if (checksFailed && !explainsFailure(read.result)) {
       findings.push(unexplainedChecksFailure(expected.job, file));
+      continue;
+    }
+    if (negativeFailed && !explainsNegativeFailure(read.result)) {
+      findings.push(unexplainedNegativeFailure(expected.job, file));
       continue;
     }
 
@@ -199,7 +211,7 @@ export async function readStageResults(
  */
 function expectsArtifact(stage: StageName, status: string | undefined): boolean {
   if (status === "success") return true;
-  return stage === "checks" && status === "failure";
+  return (stage === "checks" || stage === "negative") && status === "failure";
 }
 
 /**
@@ -210,6 +222,19 @@ function expectsArtifact(stage: StageName, status: string | undefined): boolean 
  */
 function explainsFailure(result: StageResult): boolean {
   return (result.checks ?? []).some((check) => check.outcome !== "pass");
+}
+
+/** A failed negative job is explained only when the stage actually executed. */
+function explainsNegativeFailure(result: StageResult): boolean {
+  return result.negative?.executed === true;
+}
+
+function unexplainedNegativeFailure(job: string, file: string): Finding {
+  return {
+    code: "upstream.job_failed",
+    message: `${job} failed without an executed negative control; the artifact does not report executed: true`,
+    file,
+  };
 }
 
 function unexplainedChecksFailure(job: string, file: string): Finding {
@@ -316,11 +341,35 @@ function payloadProblem(value: unknown, stage: StageName): string | null {
   if (stage === "negative") {
     const declared = value["declared"];
     const executed = value["executed"];
+    const outcomes = value["outcomes"];
     if (declared === undefined && executed === undefined) return null;
     if (typeof declared !== "number") return "negative.declared is not a number";
     if (typeof executed !== "boolean") return "negative.executed is not a boolean";
+    if (outcomes === undefined) {
+      return executed === true ? "negative.outcomes is missing" : null;
+    }
+    if (!isRecord(outcomes)) return "negative.outcomes is not an object";
+    for (const [id, outcome] of Object.entries(outcomes)) {
+      const problem = outcomeProblem(outcome, `negative.outcomes.${id}`);
+      if (problem !== null) return problem;
+    }
   }
   return null;
+}
+
+/** One `SabotageOutcome` on the wire; only `applied` carries a classification. */
+function outcomeProblem(value: unknown, at: string): string | null {
+  if (!isRecord(value)) return `${at} is not an object`;
+  const status = value["status"];
+  if (status === "not-executed" || status === "not-applied") return null;
+  if (status === "applied") {
+    const classification = value["classification"];
+    if (typeof classification !== "string" || !CLASSIFICATIONS.has(classification)) {
+      return `${at}.classification is not valid: ${describe(classification)}`;
+    }
+    return null;
+  }
+  return `${at}.status is not a valid sabotage outcome: ${describe(status)}`;
 }
 
 /** Map a validated payload onto the facts the roll-up consumes. */
@@ -348,6 +397,7 @@ function toStageResult(
       negative: {
         declared: value["declared"] as number,
         executed: value["executed"] as boolean,
+        outcomes: (value["outcomes"] as Record<string, SabotageOutcome> | undefined) ?? {},
         findings: [...findings],
       },
     };
@@ -397,7 +447,12 @@ function checkProblem(value: unknown, at: string): string | null {
  */
 function propagatedFindings(result: StageResult): Finding[] {
   if (result.stage === "registry") return [...result.findings];
-  if (result.stage === "negative") return [...(result.negative?.findings ?? result.findings)];
+  if (result.stage === "negative") {
+    // Once the stage executed, its findings are product evidence: the blocked
+    // verdicts and the per-check outcomes carry them. Only an unexecuted stage
+    // contributes gate findings.
+    return result.negative?.executed === true ? [] : [...(result.negative?.findings ?? result.findings)];
+  }
   return [];
 }
 
@@ -460,10 +515,14 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
 
   const checksArtifact = upstream.results.find((result) => result.stage === "checks");
   const results = alignReportResults(discovery.checks, checksArtifact?.checks ?? []);
+  const negativeArtifact = upstream.results.find((result) => result.stage === "negative");
+  const negativeResult = negativeArtifact?.negative;
+  const negativeOutcomes = new Map<string, SabotageOutcome>(
+    Object.entries(negativeResult?.outcomes ?? {}),
+  );
   // A discovery failure is a gate problem, never a verdict about the product. A
   // roll-up over `discovered: []` would make every rule `rule_no_check`, which
   // reads as "the product broke" in the report and in the PR comment.
-  // PEND-1: nothing executes sabotage in this delivery, so no check has an outcome.
   const verdicts: ReturnType<typeof computeVerdicts> =
     discoveryFindings.length > 0
       ? { checks: [], rules: [], flows: [] }
@@ -471,12 +530,11 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
           registry,
           discovered: discovery.checks,
           results,
-          outcomes: new Map(),
+          outcomes: negativeOutcomes,
         });
 
-  const negativeArtifact = upstream.results.find((result) => result.stage === "negative");
   const negativeControl: NegativeControlMode =
-    negativeArtifact?.negative?.executed === true ? "executed" : "declared-only";
+    negativeResult?.executed === true ? "executed" : "declared-only";
 
   const classResult = computeClass({
     observationAvailable: doctor.ran && doctor.observation === "available",
@@ -502,6 +560,7 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
     ...upstream.findings,
     ...discoveryFindings,
     ...(baseline === null ? [] : regressionFindings(baseline, classResult.class, options.baseline ?? "")),
+    ...negativeGateFindings(registry, negativeArtifact),
   ];
   const integrity = [...gateFindings, ...(doctor.finding === null ? [] : [doctor.finding])];
 
@@ -558,6 +617,44 @@ function discoveryFinding(error: DiscoveryError): Finding {
     file: error.file,
     ...(error.line === undefined ? {} : { line: error.line }),
   };
+}
+
+/**
+ * The negative artifact must cover every enforced check. A missing stage or a
+ * missing outcome is a gate problem, never a silent `declared-only` green.
+ */
+function negativeGateFindings(registry: Registry, artifact: StageResult | undefined): Finding[] {
+  const enforced = new Set<string>();
+  for (const rule of registry.rules) {
+    if (rule.status !== "enforced") continue;
+    for (const check of rule.checks) {
+      if (typeof check.id === "string") enforced.add(check.id);
+    }
+  }
+  if (enforced.size === 0) return [];
+
+  const negative = artifact?.negative;
+  if (negative?.executed !== true) {
+    return [
+      {
+        code: "upstream.negative_not_executed",
+        message: "the negative control did not execute; no enforced rule is proven",
+        file: "invariant-negative/negative-result.json",
+      },
+    ];
+  }
+
+  const findings: Finding[] = [];
+  for (const checkId of enforced) {
+    if (Object.prototype.hasOwnProperty.call(negative.outcomes, checkId)) continue;
+    findings.push({
+      code: "negative.outcome_missing",
+      message: `the negative artifact has no outcome for ${checkId}`,
+      file: "invariant-negative/negative-result.json",
+      checkId,
+    });
+  }
+  return findings;
 }
 
 /**
