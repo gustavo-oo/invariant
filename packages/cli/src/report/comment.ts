@@ -1,8 +1,9 @@
 /**
  * The human artefact: a PR comment. Renders, in this order, the class heading,
  * the class banner with its reasons, the declared-only negative-control banner,
- * the below-G1 warning, the per-flow table and a per-rule list for rules that
- * no flow names.
+ * the below-G1 warning, the zero-enforced-rules notice, the gate-failure list (a
+ * red gate must say why, R51), the per-flow table and a per-rule list for rules
+ * that no flow names.
  *
  * Every piece of registry prose is escaped before it enters a cell: a rule
  * statement is business prose (often Portuguese) and may contain `|`,
@@ -10,7 +11,7 @@
  * (review focus 2). The table pipes `renderComment` generates are never escaped.
  */
 import type { GuaranteeClass } from "../guarantee/class.js";
-import type { Report, WireRuleVerdict } from "./shape.js";
+import type { Report, WireFinding, WireRuleVerdict } from "./shape.js";
 
 const MECHANISM: Record<GuaranteeClass, string> = {
   G1: "observed",
@@ -32,6 +33,10 @@ export function renderComment(report: Report): string {
 
   const enforced = report.rules.filter((rule) => rule.status === "enforced").length;
   if (enforced === 0) blocks.push(NO_ENFORCED_RULES);
+
+  if (report.exit_code === 2 && report.integrity.length > 0) {
+    blocks.push(renderGateFailures(report.integrity));
+  }
 
   blocks.push(renderTable(report));
 
@@ -140,6 +145,21 @@ function ruleText(rule: WireRuleVerdict | undefined, ruleId: string): string {
   if (rule === undefined) return cell(ruleId);
   const statement = rule.statement === "" ? "" : ` — ${escapeText(rule.statement)}`;
   return `${cell(rule.rule_id)}${statement} (${rule.sabotage_verified ? "proven" : "checked"})`;
+}
+
+/**
+ * The gate's own failure list (R51). A cancelled worker or a missing artifact
+ * makes the report exit 2 with no product verdict to explain it; without this
+ * section the rule table would render all-green and the reason would live only
+ * in the JSON artifact. Codes and messages are data from upstream artifacts, so
+ * they are escaped like any other cell.
+ */
+function renderGateFailures(findings: WireFinding[]): string {
+  const lines = ["### Gate failures", ""];
+  for (const finding of findings) {
+    lines.push(`- ${cell(finding.code)} — ${cell(finding.message)}`);
+  }
+  return lines.join("\n");
 }
 
 function rulesOutsideFlows(report: Report): WireRuleVerdict[] {

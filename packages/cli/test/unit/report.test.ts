@@ -2,8 +2,15 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ExitCode } from "../../src/exit.js";
 import { computeClass, type GuaranteeClass } from "../../src/guarantee/class.js";
-import type { Report, ReportInput, WireCheckVerdict, WireRuleVerdict } from "../../src/report/shape.js";
+import type {
+  Report,
+  ReportInput,
+  WireCheckVerdict,
+  WireFinding,
+  WireRuleVerdict,
+} from "../../src/report/shape.js";
 import { renderComment } from "../../src/report/comment.js";
 import { buildReport } from "../../src/report/write.js";
 import type { Finding, Registry, Rule } from "../../src/registry/model.js";
@@ -25,6 +32,10 @@ interface ReportOptions {
   outsideRule?: string;
   class?: GuaranteeClass;
   negativeControl?: "declared-only" | "executed";
+  /** The published exit code; `2` is the gate-broken case the comment must explain. */
+  exitCode?: ExitCode;
+  /** Integrity findings carried by the report. */
+  integrity?: WireFinding[];
 }
 
 /**
@@ -128,7 +139,7 @@ function reportWith(options: ReportOptions = {}): Report {
       hashes: { "rules/sales.yaml": `sha256:${"0".repeat(64)}` },
     },
     immutability: { protected_paths_changed: [], flagged: false },
-    integrity: [],
+    integrity: options.integrity ?? [],
     checks: [...checks, ...flowChecks],
     rules,
     flows: [
@@ -141,7 +152,7 @@ function reportWith(options: ReportOptions = {}): Report {
         steps: [{ step_id: "s1", verdict: "pass", reason: "governing_rule_green", rule_ids: flowRuleIds }],
       },
     ],
-    exit_code: 1,
+    exit_code: options.exitCode ?? 1,
   };
 }
 
@@ -236,6 +247,55 @@ describe("renderComment (spec §8 stage 8)", () => {
     const outside = md.slice(md.indexOf("### Rules outside any flow"));
     expect(outside).toContain("SALES-900");
     expect(outside).not.toContain("SALES-004");
+  });
+
+  it("renders a Gate failures section for a red gate, after the warning and before the table (R51)", () => {
+    const md = renderComment(
+      reportWith({
+        exitCode: 2,
+        enforcedRules: 0,
+        integrity: [
+          {
+            code: "upstream.job_cancelled",
+            message: "invariant-registry was cancelled",
+            file: "invariant-registry/registry-result.json",
+          },
+          {
+            code: "upstream.artifact_missing",
+            message: "artifact | not `found`",
+            file: "invariant-checks/checks-result.json",
+          },
+        ],
+      }),
+    );
+
+    const lines = md.split("\n");
+    expect(lines).toContain("### Gate failures");
+    expect(lines).toContain("- upstream.job_cancelled — invariant-registry was cancelled");
+    // Cells go through the existing escaping, so a hostile message cannot break
+    // the list or open a code span.
+    expect(lines).toContain("- upstream.artifact_missing — artifact \\| not \\`found\\`");
+
+    const warning = md.indexOf("**No guarantee is claimed by this run.**");
+    const noRules = md.indexOf("No enforced rules are declared");
+    const section = md.indexOf("### Gate failures");
+    const table = md.indexOf("| Flow | Verdict | Step | Rule | Verdict | Check | Reason |");
+    expect(warning).toBeGreaterThanOrEqual(0);
+    expect(noRules).toBeGreaterThan(warning);
+    expect(section).toBeGreaterThan(noRules);
+    expect(table).toBeGreaterThan(section);
+  });
+
+  it("omits the Gate failures section when the gate did not fail", () => {
+    for (const exitCode of [0, 1] as const) {
+      const md = renderComment(
+        reportWith({
+          exitCode,
+          integrity: [{ code: "upstream.job_cancelled", message: "cancelled", file: "f" }],
+        }),
+      );
+      expect(md).not.toContain("### Gate failures");
+    }
   });
 });
 

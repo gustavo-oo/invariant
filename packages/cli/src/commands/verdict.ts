@@ -4,8 +4,9 @@
  *
  * The job fails **closed**. A cancelled, skipped, never-started or artifact-less
  * upstream job is red, and absence never means success: every expected job needs
- * an explicit `--job-status` entry *and*, when that entry is `success`, a
- * readable `stage-result.json`. Anything else is a gate finding (exit 2), never a
+ * an explicit `--job-status` entry *and*, when that entry requires a result, a
+ * readable artifact (`registry-result.json`, `checks-result.json`,
+ * `negative-result.json`). Anything else is a gate finding (exit 2), never a
  * verdict about the product.
  *
  * The command rebuilds what the workers observed rather than trusting a worker's
@@ -40,15 +41,22 @@ Usage:
                     [--root <dir>] [--out <file>] [--comment <file>]
 
 Options:
-      --inputs <dir>          Directory holding <job>/stage-result.json for the
-                              three upstream jobs. Required.
+      --inputs <dir>          Directory holding one artifact per job:
+                              invariant-registry/registry-result.json,
+                              invariant-checks/checks-result.json and
+                              invariant-negative/negative-result.json. Required.
       --job-status <job>=...  The result GitHub reports for an upstream job.
-                              Repeat once per job. A job with no entry is red.
-      --doctor-result <file>  The doctor's JSON result; its observation decides
-                              whether the class can be G1.
+                              Repeat once per job; a repeated job is a gate
+                              failure. A job with no entry is red.
+      --doctor-result <file>  The doctor's flat DoctorResult. Its observation
+                              decides whether the class can be G1, and its
+                              top-level repo/run_id must match --repo/--run-id
+                              or the observation is unverifiable. Requires both.
       --repo <owner/name>     Expected repository, checked against the doctor
-                              result. A mismatch makes the observation unusable.
-      --run-id <id>           Expected run id, checked the same way.
+                              result's top-level repo. Required with
+                              --doctor-result.
+      --run-id <id>           Expected run id, checked the same way and required
+                              with --doctor-result.
       --baseline <file>       A recorded {"recorded_class": "G1"|"G2"|"G3"}.
                               A lower class than the baseline is a gate failure.
       --root <dir>            Repository root (default: the current directory).
@@ -61,17 +69,23 @@ Options:
 
 Fail-closed upstream contract:
   Exactly three jobs are expected: invariant-registry, invariant-checks and
-  invariant-negative. Each is read from <inputs>/<job>/stage-result.json. A job
-  with no --job-status entry, a cancelled or skipped job, any other non-success
+  invariant-negative. Each is read from its own artifact under <inputs>/<job>/:
+  registry-result.json ({findings}), checks-result.json ({checks}) and
+  negative-result.json ({findings} or {declared, executed, findings}). A job with
+  no --job-status entry, a cancelled or skipped job, any other non-success
   status, or a success job whose artifact is missing, unreadable, unparseable or
   the wrong shape is a gate failure. Absence is never success.
+  The checks job is the one exception: run exits 1 when a check is not pass,
+  so a failed checks job with a readable artifact is a red product (exit 1), not
+  a gate failure. Its artifact is still required.
 
 Exit codes:
   0  Every upstream artifact is green and every check, enforced rule and flow passed.
   1  The upstream artifacts are complete, but a check, enforced rule or flow did not pass.
-  2  An upstream job is missing/cancelled/skipped/failed, an artifact is missing or
-     malformed, discovery failed, the registry is invalid, or the class regressed
-     against --baseline.
+  2  An upstream job is missing/cancelled/skipped/failed (other than a failed
+     checks job with a readable artifact), an artifact is missing or malformed,
+     discovery failed, the registry is invalid, or the class regressed against
+     --baseline.
 `;
 
 /** The three worker jobs the CI contract fixes (R49), in aggregation order. */
@@ -81,20 +95,27 @@ const EXPECTED_JOBS: ReadonlyArray<{ stage: StageName; job: string }> = [
   { stage: "negative", job: "invariant-negative" },
 ];
 
-const ARTIFACT = "stage-result.json";
+const ARTIFACTS: Record<StageName, string> = {
+  registry: "registry-result.json",
+  checks: "checks-result.json",
+  negative: "negative-result.json",
+};
 
-/** A worker job's name, from its artifact's `stage` field. */
+/** One worker stage, named by its job directory and its artifact file. */
 export type StageName = "registry" | "checks" | "negative";
 
 /**
- * One upstream job's artifact. `checks` is the checks worker's `CheckResult[]`;
- * `negative` is the negative worker's declaration summary (PEND-1: nothing
- * executes sabotage in this delivery, so `executed` is false today).
+ * One upstream job's artifact, normalized to the facts the roll-up needs.
+ *
+ * The artifacts are the three commands' own `--json --out` payloads (plan lines
+ * 1189-1191), not a wrapper: `validate` writes `{ findings }`, `run` writes
+ * `{ checks }`, and `negative` writes `{ findings }` (later
+ * `{ declared, executed, findings }`). There is no `stage`, `job` or `exit_code`
+ * field in any of them; the directory and the file name carry those facts.
  */
 export interface StageResult {
   stage: StageName;
   job: string;
-  exit_code: ExitCode;
   findings: Finding[];
   checks?: CheckResult[];
   negative?: { declared: number; executed: boolean; findings: Finding[] };
@@ -108,16 +129,19 @@ const CLASSIFICATIONS: ReadonlySet<string> = new Set(["assertion", "harness", "t
  * Read the three expected artifacts, cross-checked against `jobStatuses`.
  *
  * The status rule is the fail-closed core: a missing entry, `cancelled`,
- * `skipped`, `failure` or any other non-`success` value produces an
- * `upstream.*` finding and the artifact is **not** read — a non-success job is
- * never additionally required to have one. Only `success` requires an artifact,
- * and an unreadable, unparseable or shape-mismatched artifact is
- * `upstream.artifact_missing` with the reason in the message (R50).
+ * `skipped` or any other non-`success` value produces an `upstream.*` finding
+ * and the artifact is **not** read — a non-success job is never additionally
+ * required to have one.
+ *
+ * The checks job is the one exception, and it is not a relaxation: `run` exits 1
+ * exactly when a check is not `pass`, so CI reports a red *product* as a failed
+ * checks job. When that job failed but left a readable artifact, the artifact is
+ * the observation and the roll-up decides 0 vs 1. A missing or malformed
+ * artifact is still `upstream.artifact_missing` (exit 2): the gate cannot know
+ * whether the product is red or the job broke.
  *
  * `results` holds only artifacts actually read, in job order. Propagated findings
- * are the registry artifact's `findings` and the negative artifact's
- * `negative.findings` (R51); a non-zero artifact exit with nothing propagated
- * adds `upstream.job_failed` naming the stage.
+ * are the registry artifact's and the negative artifact's findings (R51).
  */
 export async function readStageResults(
   inputsDir: string,
@@ -127,35 +151,38 @@ export async function readStageResults(
   const findings: Finding[] = [];
 
   for (const expected of EXPECTED_JOBS) {
-    const file = `${expected.job}/${ARTIFACT}`;
+    const file = `${expected.job}/${ARTIFACTS[expected.stage]}`;
     const status = jobStatuses.get(expected.job);
 
-    if (status !== "success") {
+    if (!expectsArtifact(expected.stage, status)) {
       findings.push(statusFinding(expected.job, file, status));
       continue;
     }
 
-    const read = await readStageResult(path.join(inputsDir, expected.job, ARTIFACT), expected, file);
+    const read = await readStageResult(
+      path.join(inputsDir, expected.job, ARTIFACTS[expected.stage]),
+      expected,
+      file,
+    );
     if (!read.ok) {
       findings.push(read.finding);
       continue;
     }
 
     results.push(read.result);
-    const propagated = propagatedFindings(read.result);
-    findings.push(...propagated);
-    if (read.result.exit_code !== 0 && propagated.length === 0) {
-      // The job reported success but its own artifact says otherwise. Fail
-      // closed rather than pick which of the two statuses to believe.
-      findings.push({
-        code: "upstream.job_failed",
-        message: `stage ${expected.stage} exited with code ${read.result.exit_code}`,
-        file,
-      });
-    }
+    findings.push(...propagatedFindings(read.result));
   }
 
   return { results, findings };
+}
+
+/**
+ * A checks job that failed is a red product, not a broken gate: `run` exits 1 on
+ * any check that is not `pass`. The artifact must still exist.
+ */
+function expectsArtifact(stage: StageName, status: string | undefined): boolean {
+  if (status === "success") return true;
+  return stage === "checks" && status === "failure";
 }
 
 function statusFinding(job: string, file: string, status: string | undefined): Finding {
@@ -206,11 +233,14 @@ async function readStageResult(
     };
   }
 
-  const problem = shapeProblem(parsed, expected);
+  const problem = payloadProblem(parsed, expected.stage);
   if (problem !== null) {
-    return { ok: false, finding: artifactMissing(file, `artifact is not a stage result: ${problem}`) };
+    return {
+      ok: false,
+      finding: artifactMissing(file, `artifact is not a ${ARTIFACTS[expected.stage]}: ${problem}`),
+    };
   }
-  return { ok: true, result: parsed as StageResult };
+  return { ok: true, result: toStageResult(parsed as Record<string, unknown>, expected) };
 }
 
 function artifactMissing(file: string, detail: string): Finding {
@@ -224,35 +254,70 @@ function unreadableDetail(cause: unknown): string {
   return code === undefined ? "artifact is unreadable" : `artifact is unreadable (${code})`;
 }
 
-function shapeProblem(value: unknown, expected: { stage: StageName; job: string }): string | null {
+/**
+ * R50: each stage's payload is validated against the command that writes it. A
+ * checks payload must carry `checks` (with known outcomes); a registry or
+ * negative payload must carry `findings`. The negative command's richer payload
+ * (`{declared, executed, findings}`) is accepted, but its two extra fields must
+ * agree on presence: a half-written declaration is not an observation.
+ */
+function payloadProblem(value: unknown, stage: StageName): string | null {
   if (!isRecord(value)) return "the document is not an object";
-  if (value["job"] !== expected.job) {
-    return `job is ${describe(value["job"])}, expected ${JSON.stringify(expected.job)}`;
-  }
-  if (value["stage"] !== expected.stage) {
-    return `stage is ${describe(value["stage"])}, expected ${JSON.stringify(expected.stage)}`;
-  }
-  const exitCode = value["exit_code"];
-  if (exitCode !== 0 && exitCode !== 1 && exitCode !== 2) {
-    return `exit_code is ${describe(exitCode)}, expected 0, 1 or 2`;
-  }
-  if (!Array.isArray(value["findings"])) return "findings is not an array";
-  for (const [index, finding] of value["findings"].entries()) {
-    const problem = findingProblem(finding, `findings[${index}]`);
-    if (problem !== null) return problem;
-  }
-  if (value["checks"] !== undefined) {
+  if (stage === "checks") {
     if (!Array.isArray(value["checks"])) return "checks is not an array";
     for (const [index, check] of value["checks"].entries()) {
       const problem = checkProblem(check, `checks[${index}]`);
       if (problem !== null) return problem;
     }
+    return null;
   }
-  if (value["negative"] !== undefined) {
-    const problem = negativeProblem(value["negative"]);
+
+  if (!Array.isArray(value["findings"])) return "findings is not an array";
+  for (const [index, finding] of value["findings"].entries()) {
+    const problem = findingProblem(finding, `findings[${index}]`);
     if (problem !== null) return problem;
   }
+
+  if (stage === "negative") {
+    const declared = value["declared"];
+    const executed = value["executed"];
+    if (declared === undefined && executed === undefined) return null;
+    if (typeof declared !== "number") return "negative.declared is not a number";
+    if (typeof executed !== "boolean") return "negative.executed is not a boolean";
+  }
   return null;
+}
+
+/** Map a validated payload onto the facts the roll-up consumes. */
+function toStageResult(
+  value: Record<string, unknown>,
+  expected: { stage: StageName; job: string },
+): StageResult {
+  if (expected.stage === "checks") {
+    // The checks artifact's own `findings` are not propagated: its observations
+    // are the `checks` outcomes (R51).
+    return {
+      stage: expected.stage,
+      job: expected.job,
+      findings: [],
+      checks: value["checks"] as CheckResult[],
+    };
+  }
+
+  const findings = value["findings"] as Finding[];
+  if (expected.stage === "negative" && value["declared"] !== undefined) {
+    return {
+      stage: expected.stage,
+      job: expected.job,
+      findings,
+      negative: {
+        declared: value["declared"] as number,
+        executed: value["executed"] as boolean,
+        findings: [...findings],
+      },
+    };
+  }
+  return { stage: expected.stage, job: expected.job, findings };
 }
 
 function findingProblem(value: unknown, at: string): string | null {
@@ -290,33 +355,22 @@ function checkProblem(value: unknown, at: string): string | null {
   return null;
 }
 
-function negativeProblem(value: unknown): string | null {
-  if (!isRecord(value)) return "negative is not an object";
-  if (typeof value["declared"] !== "number") return "negative.declared is not a number";
-  if (typeof value["executed"] !== "boolean") return "negative.executed is not a boolean";
-  if (!Array.isArray(value["findings"])) return "negative.findings is not an array";
-  for (const [index, finding] of value["findings"].entries()) {
-    const problem = findingProblem(finding, `negative.findings[${index}]`);
-    if (problem !== null) return problem;
-  }
-  return null;
-}
-
 /**
- * R51 propagates exactly two finding lists: the registry artifact's `findings`
- * and the negative artifact's `negative.findings`. The checks artifact's own
- * findings are not propagated: its observations are the `checks` outcomes, and
- * a non-zero exit with nothing propagated is `upstream.job_failed` below.
+ * R51 propagates the registry artifact's `findings` and the negative artifact's
+ * findings. The checks artifact's observations are the `checks` outcomes, so its
+ * payload has nothing to propagate.
  */
 function propagatedFindings(result: StageResult): Finding[] {
   if (result.stage === "registry") return [...result.findings];
-  if (result.stage === "negative") return [...(result.negative?.findings ?? [])];
+  if (result.stage === "negative") return [...(result.negative?.findings ?? result.findings)];
   return [];
 }
 
 interface Options {
   inputs: string;
   jobStatuses: Map<string, string>;
+  /** Jobs whose `--job-status` was given more than once; ambiguous, never read as a pass. */
+  duplicateStatuses: string[];
   doctorResult: string | null;
   repo: string | null;
   runId: string | null;
@@ -366,22 +420,29 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
 
   const checksArtifact = upstream.results.find((result) => result.stage === "checks");
   const results = alignResults(discovery.checks, checksArtifact?.checks ?? []);
+  // A discovery failure is a gate problem, never a verdict about the product. A
+  // roll-up over `discovered: []` would make every rule `rule_no_check`, which
+  // reads as "the product broke" in the report and in the PR comment.
   // PEND-1: nothing executes sabotage in this delivery, so no check has an outcome.
-  const verdicts = computeVerdicts({
-    registry,
-    discovered: discovery.checks,
-    results,
-    outcomes: new Map(),
-  });
+  const verdicts: ReturnType<typeof computeVerdicts> =
+    discoveryFindings.length > 0
+      ? { checks: [], rules: [], flows: [] }
+      : computeVerdicts({
+          registry,
+          discovered: discovery.checks,
+          results,
+          outcomes: new Map(),
+        });
 
   const negativeArtifact = upstream.results.find((result) => result.stage === "negative");
   const negativeControl: NegativeControlMode =
     negativeArtifact?.negative?.executed === true ? "executed" : "declared-only";
 
-  const mismatch = doctor.finding === null ? [] : [{ code: doctor.finding.code, message: doctor.finding.message }];
   const classResult = computeClass({
     observationAvailable: doctor.ran && doctor.observation === "available",
-    protectionFindings: [...doctor.findings, ...mismatch],
+    // R52: `readDoctor` already reduced the artifact to its `severity: "fail"`
+    // findings. `info` findings describe the observation, they do not lower it.
+    protectionFindings: doctor.findings,
     credentialBoundary: config.credentialBoundary !== "none",
   });
 
@@ -397,6 +458,7 @@ export async function verdict(argv: string[], io: CliIo): Promise<ExitCode> {
   // the class and stays visible in the report, but it is not a gate failure: a
   // run whose observation is unusable still has a product verdict (R52).
   const gateFindings = [
+    ...options.duplicateStatuses.map(duplicateStatusFinding),
     ...upstream.findings,
     ...discoveryFindings,
     ...(baseline === null ? [] : regressionFindings(baseline, classResult.class, options.baseline ?? "")),
@@ -478,20 +540,43 @@ function discoveryFinding(error: DiscoveryError): Finding {
   };
 }
 
+/**
+ * A repeated `--job-status` for one job is ambiguous, not "the last one wins":
+ * `cancelled` followed by `success` would otherwise turn a cancelled job green.
+ * The first entry is kept (so the report still shows the earliest claim) and the
+ * duplicate itself is a gate failure.
+ */
+function duplicateStatusFinding(job: string): Finding {
+  return {
+    code: "upstream.job_status_duplicate",
+    message: `--job-status was given more than once for ${job}; the job's result is ambiguous`,
+    file: "--job-status",
+  };
+}
+
 interface DoctorRead {
   ran: boolean;
   observation: "available" | "unavailable";
+  /** The artifact's `severity: "fail"` findings, the only input `computeClass` sees. */
   findings: ClassFinding[];
   /** `doctor.result_mismatch` when the envelope or the file is unusable. */
   finding: Finding | null;
 }
 
 /**
- * R52: an envelope that disagrees with `--repo`/`--run-id` (or lacks the field)
- * makes the observation unusable — `ran: false`, `observation: unavailable` —
- * while the doctor's own findings still lower the class. The mismatch itself is
- * reported as `doctor.result_mismatch`; there is deliberately no second code for
- * an unreadable or malformed result, because it is equally unverifiable.
+ * R52: the plan's `DoctorResult` is **flat** (plan line 1371): the observation
+ * carries its own availability and the findings carry a severity. Anything that
+ * does not match that shape — including the nested `{doctor: {...}}` envelope an
+ * earlier revision invented — is unusable, because a class read from it would be
+ * a claim about a document nothing in the pipeline produces.
+ *
+ * `ran` is `observation.available`, and only `severity: "fail"` findings reach
+ * `computeClass`: `info` findings describe the observation (a merge queue whose
+ * state is unknown, for instance) and must not lower the class.
+ *
+ * The envelope is the artifact's own top-level `repo`/`run_id`. A missing
+ * expectation is as unverifiable as a disagreeing one: without it a stale
+ * artifact from another run could still yield G1.
  */
 async function readDoctor(options: Options, cwd: string): Promise<DoctorRead> {
   if (options.doctorResult === null) {
@@ -503,27 +588,40 @@ async function readDoctor(options: Options, cwd: string): Promise<DoctorRead> {
   try {
     parsed = JSON.parse(await readText(path.resolve(cwd, options.doctorResult)));
   } catch (cause) {
-    return unusableDoctor(file, isNotFound(cause) ? "doctor result not found" : `doctor result is unreadable or not valid JSON: ${errorMessage(cause)}`);
-  }
-  if (!isRecord(parsed)) {
-    return unusableDoctor(file, "doctor result is not an object");
-  }
-  const doctor = doctorShape(parsed["doctor"]);
-  if (doctor === null) {
-    return unusableDoctor(file, "doctor result does not carry a valid {repo, run_id, doctor} envelope");
+    return unusableDoctor(
+      file,
+      isNotFound(cause)
+        ? "doctor result not found"
+        : `doctor result is unreadable or not valid JSON: ${errorMessage(cause)}`,
+    );
   }
 
-  const problems = envelopeProblems(parsed, options);
+  const doctor = doctorShape(parsed);
+  if (doctor === null) {
+    return unusableDoctor(
+      file,
+      "doctor result is not a flat DoctorResult {schema_version, repo, run_id, class, reasons, findings, observation}",
+    );
+  }
+
+  const problems = envelopeProblems(parsed as Record<string, unknown>, options);
   if (problems.length > 0) {
+    // Unverifiable, never G1: the findings were read from a result this run
+    // cannot attribute to itself, so the class is computed without them.
     return {
       ran: false,
       observation: "unavailable",
-      findings: doctor.findings,
+      findings: [],
       finding: { code: "doctor.result_mismatch", message: problems.join("; "), file },
     };
   }
 
-  return { ran: doctor.ran, observation: doctor.observation, findings: doctor.findings, finding: null };
+  return {
+    ran: doctor.available,
+    observation: doctor.available ? "available" : "unavailable",
+    findings: doctor.findings,
+    finding: null,
+  };
 }
 
 function unusableDoctor(file: string, message: string): DoctorRead {
@@ -535,18 +633,26 @@ function unusableDoctor(file: string, message: string): DoctorRead {
   };
 }
 
-function envelopeProblems(envelope: Record<string, unknown>, options: Options): string[] {
+function envelopeProblems(artifact: Record<string, unknown>, options: Options): string[] {
   const problems: string[] = [];
-  if (options.repo !== null) {
-    const actual = envelope["repo"];
+  if (options.repo === null) {
+    problems.push(
+      "--doctor-result was supplied without --repo, so the observation cannot be attributed to this repository",
+    );
+  } else {
+    const actual = artifact["repo"];
     if (typeof actual !== "string") {
       problems.push(`doctor result has no repo, expected ${JSON.stringify(options.repo)}`);
     } else if (actual !== options.repo) {
       problems.push(`doctor result repo is ${JSON.stringify(actual)}, expected ${JSON.stringify(options.repo)}`);
     }
   }
-  if (options.runId !== null) {
-    const actual = envelope["run_id"];
+  if (options.runId === null) {
+    problems.push(
+      "--doctor-result was supplied without --run-id, so a stale observation cannot be ruled out",
+    );
+  } else {
+    const actual = artifact["run_id"];
     if (typeof actual !== "string") {
       problems.push(`doctor result has no run_id, expected ${JSON.stringify(options.runId)}`);
     } else if (actual !== options.runId) {
@@ -556,12 +662,18 @@ function envelopeProblems(envelope: Record<string, unknown>, options: Options): 
   return problems;
 }
 
-function doctorShape(value: unknown): DoctorSummary | null {
+interface DoctorShape {
+  available: boolean;
+  findings: ClassFinding[];
+}
+
+/** The flat `DoctorResult` guard; `null` means the document is unusable. */
+function doctorShape(value: unknown): DoctorShape | null {
   if (!isRecord(value)) return null;
-  if (typeof value["ran"] !== "boolean") return null;
+  if (value["schema_version"] !== 1) return null;
+  if (!isNullableString(value["repo"])) return null;
+  if (!isNullableString(value["run_id"])) return null;
   if (!isClass(value["class"])) return null;
-  if (typeof value["observation"] !== "string") return null;
-  if (value["observation"] !== "available" && value["observation"] !== "unavailable") return null;
   if (!Array.isArray(value["reasons"]) || !value["reasons"].every((reason) => typeof reason === "string")) {
     return null;
   }
@@ -571,15 +683,20 @@ function doctorShape(value: unknown): DoctorSummary | null {
     if (!isRecord(finding) || typeof finding["code"] !== "string" || typeof finding["message"] !== "string") {
       return null;
     }
-    findings.push({ code: finding["code"], message: finding["message"] });
+    const severity = finding["severity"];
+    if (severity !== "fail" && severity !== "info") return null;
+    if (severity === "fail") findings.push({ code: finding["code"], message: finding["message"] });
   }
-  return {
-    ran: value["ran"],
-    class: value["class"],
-    reasons: [...value["reasons"]],
-    findings,
-    observation: value["observation"],
-  };
+
+  const observation = value["observation"];
+  if (!isRecord(observation) || typeof observation["available"] !== "boolean") return null;
+  if (observation["available"]) {
+    if (!isRecord(observation["repo"]) || !isRecord(observation["protection"])) return null;
+  } else if (typeof observation["reason"] !== "string") {
+    return null;
+  }
+
+  return { available: observation["available"], findings };
 }
 
 /** R53: PEND-6 puts the regression decision here, never in the workflow. */
@@ -625,6 +742,7 @@ function parseArgs(
 ): { kind: "ok"; options: Options } | { kind: "exit"; code: ExitCode } {
   let inputs: string | null = null;
   const jobStatuses = new Map<string, string>();
+  const duplicateStatuses: string[] = [];
   let doctorResult: string | null = null;
   let repo: string | null = null;
   let runId: string | null = null;
@@ -653,7 +771,12 @@ function parseArgs(
           io.stderr(`invariant verdict: --job-status expects <job>=<result>, got ${value}\n`);
           return { kind: "exit", code: EXIT.GATE_BROKEN };
         }
-        jobStatuses.set(value.slice(0, equals), value.slice(equals + 1));
+        const job = value.slice(0, equals);
+        if (jobStatuses.has(job)) {
+          duplicateStatuses.push(job);
+        } else {
+          jobStatuses.set(job, value.slice(equals + 1));
+        }
         break;
       }
       case "--inputs":
@@ -695,7 +818,7 @@ function parseArgs(
     return { kind: "exit", code: EXIT.GATE_BROKEN };
   }
 
-  return { kind: "ok", options: { inputs, jobStatuses, doctorResult, repo, runId, baseline, root, out, comment } };
+  return { kind: "ok", options: { inputs, jobStatuses, duplicateStatuses, doctorResult, repo, runId, baseline, root, out, comment } };
 }
 
 /** One finding per line, in the same shape `validate` prints. */
@@ -714,6 +837,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isClass(value: unknown): value is GuaranteeClass {
   return value === "G1" || value === "G2" || value === "G3";
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function describe(value: unknown): string {

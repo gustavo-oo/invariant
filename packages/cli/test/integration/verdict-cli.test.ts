@@ -32,45 +32,79 @@ test("is rejected when stock is insufficient", () => {});
 
 const RUNTIME_ID = "is rejected when stock is insufficient";
 
-function stage(
-  stageName: "registry" | "checks" | "negative",
-  job: string,
-  extra: Record<string, unknown> = {},
-  exitCode: 0 | 1 | 2 = 0,
-): string {
-  return JSON.stringify({ stage: stageName, job, exit_code: exitCode, findings: [], ...extra }, null, 2);
+/**
+ * One worker's real `--json --out` payload. There is no wrapper envelope: the
+ * job directory and the file name carry the job and the stage.
+ */
+function artifact(engine: "registry" | "checks" | "negative", payload: Record<string, unknown> = {}): string {
+  const base = engine === "checks" ? { checks: [] } : { findings: [] };
+  return JSON.stringify({ ...base, ...payload }, null, 2);
 }
 
 /** A repo whose three upstream artifacts are all present and green. */
 async function makeVerdictRepo(
-  checksOutcome: "pass" | "not-run",
+  checksOutcome: "pass" | "fail" | "not-run",
   extra: Record<string, string> = {},
+  omitted: Array<"registry" | "checks" | "negative"> = [],
 ): Promise<string> {
-  return await makeTmpRepo({
+  const files: Record<string, string> = {
     "rules/sales.yaml": RULES,
     "src/sales.test.ts": TEST,
-    "inputs/invariant-registry/stage-result.json": stage("registry", "invariant-registry"),
-    "inputs/invariant-checks/stage-result.json": stage("checks", "invariant-checks", {
+    "inputs/invariant-registry/registry-result.json": artifact("registry"),
+    "inputs/invariant-checks/checks-result.json": artifact("checks", {
       checks: [{ runtimeId: RUNTIME_ID, outcome: checksOutcome }],
     }),
-    "inputs/invariant-negative/stage-result.json": stage("negative", "invariant-negative", {
-      negative: { declared: 1, executed: false, findings: [] },
+    "inputs/invariant-negative/negative-result.json": artifact("negative", {
+      declared: 1,
+      executed: false,
     }),
     ...extra,
-  });
+  };
+  for (const job of omitted) {
+    delete files[
+      job === "registry"
+        ? "inputs/invariant-registry/registry-result.json"
+        : job === "checks"
+          ? "inputs/invariant-checks/checks-result.json"
+          : "inputs/invariant-negative/negative-result.json"
+    ];
+  }
+  return await makeTmpRepo(files);
 }
 
-const DOCTOR = JSON.stringify({
-  repo: "acme/shop",
-  run_id: "42",
-  doctor: {
-    ran: true,
-    class: "G1",
-    reasons: [],
-    findings: [],
-    observation: "available",
-  },
-});
+/**
+ * The plan's flat `DoctorResult` (plan line 1371): there is no `doctor`
+ * envelope, the observation carries its own availability, and each finding
+ * carries a severity the class decision filters on.
+ */
+function doctorArtifact(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify(
+    {
+      schema_version: 1,
+      repo: "acme/shop",
+      run_id: "42",
+      class: "G1",
+      reasons: [],
+      findings: [],
+      observation: {
+        available: true,
+        repo: { owner: "acme", name: "shop", defaultBranch: "main", visibility: "public" },
+        protection: {
+          mechanism: "ruleset",
+          requiredContexts: [{ context: "invariant-verdict", appId: 15368 }],
+          codeOwnerReview: true,
+          bypassActors: [],
+          mergeQueue: "unknown",
+        },
+      },
+      ...overrides,
+    },
+    null,
+    2,
+  );
+}
+
+const DOCTOR = doctorArtifact();
 
 async function readReportFile(root: string): Promise<Report> {
   return JSON.parse(await readFile(path.join(root, "invariant-report.json"), "utf8")) as Report;
@@ -168,6 +202,87 @@ describe("invariant verdict", () => {
     expect(report.checks.map((check) => check.verdict)).toEqual(["not-run"]);
   });
 
+  it("is exit 1, not a gate failure, when the checks job failed but its artifact is readable", async () => {
+    // `run` exits 1 exactly when a check is not `pass`, so CI reports the
+    // checks job as `failure` for a red product. The artifact — not the job
+    // status — decides the product verdict.
+    const root = await makeVerdictRepo("fail");
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--job-status",
+        "invariant-registry=success",
+        "--job-status",
+        "invariant-checks=failure",
+        "--job-status",
+        "invariant-negative=success",
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stdout).toBe("G3 product broken\n");
+    const report = await readReportFile(root);
+    expect(report.exit_code).toBe(1);
+    expect(report.integrity).toEqual([]);
+    expect(report.rules.map((rule) => [rule.rule_id, rule.verdict])).toEqual([["SALES-004", "fail"]]);
+  });
+
+  it("is a gate failure when the checks job failed and left no artifact", async () => {
+    const root = await makeVerdictRepo("fail", {}, ["checks"]);
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--job-status",
+        "invariant-registry=success",
+        "--job-status",
+        "invariant-checks=failure",
+        "--job-status",
+        "invariant-negative=success",
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(2);
+    const report = await readReportFile(root);
+    expect(report.integrity.map((finding) => finding.code)).toContain("upstream.artifact_missing");
+  });
+
+  it("rejects a duplicate --job-status for one job instead of letting the last entry win", async () => {
+    // `--job-status invariant-checks=cancelled --job-status
+    // invariant-checks=success` must never turn a cancelled job green.
+    const root = await makeVerdictRepo("pass");
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--job-status",
+        "invariant-registry=success",
+        "--job-status",
+        "invariant-checks=cancelled",
+        "--job-status",
+        "invariant-checks=success",
+        "--job-status",
+        "invariant-negative=success",
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(2);
+    expect(run.stdout).toBe("G3 gate broken\n");
+    const report = await readReportFile(root);
+    expect(report.exit_code).toBe(2);
+    const duplicate = report.integrity.find(
+      (finding) => finding.code === "upstream.job_status_duplicate",
+    );
+    expect(duplicate?.message).toContain("invariant-checks");
+  });
+
   it("validates the registry first and writes no report when it is invalid", async () => {
     const run = await runFixture("invalid-registry", {
       args: ["verdict", "--inputs", ".", ...GREEN_STATUSES],
@@ -179,7 +294,7 @@ describe("invariant verdict", () => {
     expect(run.stderr).not.toBe("");
   });
 
-  it("is a gate failure when discovery cannot run, and still writes the report", async () => {
+  it("is a gate failure when discovery cannot run, and publishes no product verdicts", async () => {
     const root = await makeVerdictRepo("pass", {
       ".invariant/config.yaml": "adapter: no-such-adapter\n",
     });
@@ -188,7 +303,15 @@ describe("invariant verdict", () => {
     expect(run.exitCode).toBe(2);
     expect(run.stdout).toBe("G3 gate broken\n");
     const report = await readReportFile(root);
+    expect(report.exit_code).toBe(2);
     expect(report.integrity.map((finding) => finding.code)).toContain("integrity.discovery_error");
+    // A discovery failure is a gate problem, never a verdict about the product:
+    // no rule may be published as `rule_no_check` (or as anything else).
+    expect(report.checks).toEqual([]);
+    expect(report.rules).toEqual([]);
+    expect(report.flows).toEqual([]);
+    const comment = await readFile(path.join(root, "invariant-comment.md"), "utf8");
+    expect(comment).not.toContain("rule_no_check");
   });
 
   it("gates a class regression against the recorded baseline", async () => {
@@ -251,7 +374,7 @@ describe("invariant verdict", () => {
     expect(report.integrity.map((finding) => finding.code)).toContain("doctor.result_mismatch");
   });
 
-  it("claims G1 only from a matching, observed doctor result", async () => {
+  it("reaches G1 from a plan-shaped artifact with an available observation and no fail findings", async () => {
     const root = await makeVerdictRepo("pass", { "doctor.json": DOCTOR });
     const run = await spawnCli(
       [
@@ -280,6 +403,159 @@ describe("invariant verdict", () => {
       observation: "available",
       findings: [],
     });
+  });
+
+  it("keeps G1 when the doctor result carries only info-severity findings", async () => {
+    const root = await makeVerdictRepo("pass", {
+      "doctor.json": doctorArtifact({
+        findings: [
+          {
+            code: "merge_queue.workflow_missing_trigger",
+            severity: "info",
+            message: "merge_queue: unknown",
+          },
+        ],
+      }),
+    });
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--doctor-result",
+        "doctor.json",
+        "--repo",
+        "acme/shop",
+        "--run-id",
+        "42",
+        ...GREEN_STATUSES,
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(0);
+    const report = await readReportFile(root);
+    expect(report.guarantee.class).toBe("G1");
+    // Only fail-severity findings reach the class decision, so the summary does
+    // not turn an informational observation into a protection problem.
+    expect(report.guarantee.doctor.findings).toEqual([]);
+  });
+
+  it("lowers the class for a fail-severity doctor finding and reports it", async () => {
+    const root = await makeVerdictRepo("pass", {
+      "doctor.json": doctorArtifact({
+        findings: [
+          { code: "protection.missing", severity: "fail", message: "main is unprotected" },
+        ],
+      }),
+    });
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--doctor-result",
+        "doctor.json",
+        "--repo",
+        "acme/shop",
+        "--run-id",
+        "42",
+        ...GREEN_STATUSES,
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(0);
+    const report = await readReportFile(root);
+    expect(report.guarantee.class).toBe("G3");
+    expect(report.guarantee.doctor).toMatchObject({
+      ran: true,
+      observation: "available",
+      findings: [{ code: "protection.missing", message: "main is unprotected" }],
+    });
+  });
+
+  it("never claims G1 from a doctor result when no --repo/--run-id expectation was supplied", async () => {
+    const root = await makeVerdictRepo("pass", { "doctor.json": DOCTOR });
+    const run = await spawnCli(
+      ["verdict", "--inputs", "inputs", "--doctor-result", "doctor.json", ...GREEN_STATUSES],
+      { cwd: root },
+    );
+
+    // The product is green; the observation cannot be attributed to this run, so
+    // the class is G3 and the reason is on the report rather than a silent G1.
+    expect(run.exitCode).toBe(0);
+    const report = await readReportFile(root);
+    expect(report.guarantee.class).toBe("G3");
+    expect(report.guarantee.binding).toBe(false);
+    expect(report.guarantee.doctor).toMatchObject({ ran: false, observation: "unavailable" });
+    const mismatch = report.integrity.find((finding) => finding.code === "doctor.result_mismatch");
+    expect(mismatch?.message).toContain("--repo");
+    expect(mismatch?.message).toContain("--run-id");
+  });
+
+  it("never claims G1 when the doctor result belongs to another run", async () => {
+    const root = await makeVerdictRepo("pass", { "doctor.json": DOCTOR });
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--doctor-result",
+        "doctor.json",
+        "--repo",
+        "acme/shop",
+        "--run-id",
+        "41",
+        ...GREEN_STATUSES,
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(0);
+    const report = await readReportFile(root);
+    expect(report.guarantee.class).toBe("G3");
+    expect(report.guarantee.doctor).toMatchObject({ ran: false, observation: "unavailable" });
+    const mismatch = report.integrity.find((finding) => finding.code === "doctor.result_mismatch");
+    expect(mismatch?.message).toContain("run_id");
+    expect(mismatch?.message).toContain('"41"');
+  });
+
+  it("rejects the invented nested doctor envelope as unusable and never claims G1", async () => {
+    const root = await makeVerdictRepo("pass", {
+      "doctor.json": JSON.stringify({
+        repo: "acme/shop",
+        run_id: "42",
+        doctor: {
+          ran: true,
+          class: "G1",
+          reasons: [],
+          findings: [],
+          observation: "available",
+        },
+      }),
+    });
+    const run = await spawnCli(
+      [
+        "verdict",
+        "--inputs",
+        "inputs",
+        "--doctor-result",
+        "doctor.json",
+        "--repo",
+        "acme/shop",
+        "--run-id",
+        "42",
+        ...GREEN_STATUSES,
+      ],
+      { cwd: root },
+    );
+
+    expect(run.exitCode).toBe(0);
+    const report = await readReportFile(root);
+    expect(report.guarantee.class).toBe("G3");
+    expect(report.guarantee.doctor).toMatchObject({ ran: false, observation: "unavailable" });
+    expect(report.integrity.map((finding) => finding.code)).toContain("doctor.result_mismatch");
   });
 
   it("refuses to run when a requested baseline cannot be read", async () => {

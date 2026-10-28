@@ -1,8 +1,4 @@
 {
-  "stage": "checks",
-  "job": "invariant-checks",
-  "exit_code": 0,
-  "findings": [],
   "checks": [
     {
       "runtimeId": "is rejected when stock is insufficient",

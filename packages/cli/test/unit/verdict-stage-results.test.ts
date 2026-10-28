@@ -5,18 +5,26 @@ import { makeTmpRepo } from "../helpers/fixture.js";
 const JOBS = ["invariant-registry", "invariant-checks", "invariant-negative"] as const;
 type Job = (typeof JOBS)[number];
 
-const STAGE: Record<Job, string> = {
-  "invariant-registry": "registry",
-  "invariant-checks": "checks",
-  "invariant-negative": "negative",
+/**
+ * The artifacts the plan's workflow uploads, per job (plan lines 1189-1191).
+ * There is no `stage-result.json`: each job writes its own command's `--json`
+ * payload under its own name.
+ */
+const ARTIFACT: Record<Job, string> = {
+  "invariant-registry": "registry-result.json",
+  "invariant-checks": "checks-result.json",
+  "invariant-negative": "negative-result.json",
 };
 
-function artifact(job: Job, extra: Record<string, unknown> = {}, exitCode = 0): string {
-  return `${JSON.stringify(
-    { stage: STAGE[job], job, exit_code: exitCode, findings: [], ...extra },
-    null,
-    2,
-  )}\n`;
+/** The payload each command's `--json --out` writes, verbatim. */
+const PAYLOAD: Record<Job, Record<string, unknown>> = {
+  "invariant-registry": { findings: [] },
+  "invariant-checks": { checks: [] },
+  "invariant-negative": { findings: [] },
+};
+
+function artifact(job: Job, payload: Record<string, unknown> = {}): string {
+  return `${JSON.stringify({ ...PAYLOAD[job], ...payload }, null, 2)}\n`;
 }
 
 /** A valid three-artifact repo; `null` omits one artifact on purpose. */
@@ -24,7 +32,7 @@ async function makeInputs(overrides: Partial<Record<Job, string | null>> = {}): 
   const files: Record<string, string> = {};
   for (const job of JOBS) {
     const value = Object.prototype.hasOwnProperty.call(overrides, job) ? overrides[job] : artifact(job);
-    if (value !== null && value !== undefined) files[`${job}/stage-result.json`] = value;
+    if (value !== null && value !== undefined) files[`${job}/${ARTIFACT[job]}`] = value;
   }
   return await makeTmpRepo(files);
 }
@@ -41,12 +49,17 @@ function statuses(overrides: Partial<Record<Job, string | undefined>> = {}): Map
 const codes = (findings: Array<{ code: string }>): string[] => findings.map((finding) => finding.code);
 
 describe("readStageResults", () => {
-  it("reads all three success artifacts in job order", async () => {
+  it("reads the three real artifacts in job order", async () => {
     const inputs = await makeInputs();
     const read = await readStageResults(inputs, statuses());
 
     expect(read.findings).toEqual([]);
     expect(read.results.map((result) => result.job)).toEqual([...JOBS]);
+    expect(read.results.map((result) => result.stage)).toEqual(["registry", "checks", "negative"]);
+    expect(read.results[0]?.findings).toEqual([]);
+    expect(read.results[1]?.checks).toEqual([]);
+    expect(read.results[2]?.findings).toEqual([]);
+    expect(read.results[2]?.negative).toBeUndefined();
   });
 
   it("reports a job with no --job-status entry as missing", async () => {
@@ -69,20 +82,45 @@ describe("readStageResults", () => {
     expect(read.results.map((result) => result.job)).toEqual(["invariant-negative"]);
   });
 
-  it("reports failure as upstream.job_failed", async () => {
+  it("reports a failed registry job as upstream.job_failed", async () => {
     const inputs = await makeInputs();
-    const read = await readStageResults(inputs, statuses({ "invariant-checks": "failure" }));
+    const read = await readStageResults(inputs, statuses({ "invariant-registry": "failure" }));
 
     expect(codes(read.findings)).toEqual(["upstream.job_failed"]);
-    expect(read.findings[0]?.message).toContain("invariant-checks");
+    expect(read.findings[0]?.message).toContain("invariant-registry");
   });
 
-  it("reports any other non-success status as upstream.job_failed, naming it", async () => {
+  it("reports a failed negative job as upstream.job_failed", async () => {
     const inputs = await makeInputs();
-    const read = await readStageResults(inputs, statuses({ "invariant-negative": "timed_out" }));
+    const read = await readStageResults(inputs, statuses({ "invariant-negative": "failure" }));
 
     expect(codes(read.findings)).toEqual(["upstream.job_failed"]);
-    expect(read.findings[0]?.message).toContain("timed_out");
+    expect(read.findings[0]?.message).toContain("invariant-negative");
+  });
+
+  it("treats a failed checks job with a readable artifact as a product observation", async () => {
+    // `run` exits 1 when a check is not `pass`, so the job status cannot be the
+    // gate decision; the artifact is.
+    const inputs = await makeInputs({
+      "invariant-checks": artifact("invariant-checks", {
+        checks: [{ runtimeId: "t", outcome: "fail" }],
+      }),
+    });
+    const read = await readStageResults(inputs, statuses({ "invariant-checks": "failure" }));
+
+    expect(read.findings).toEqual([]);
+    expect(read.results.find((result) => result.stage === "checks")?.checks).toEqual([
+      { runtimeId: "t", outcome: "fail" },
+    ]);
+  });
+
+  it("requires an artifact from a failed checks job and says it was not found", async () => {
+    const inputs = await makeInputs({ "invariant-checks": null });
+    const read = await readStageResults(inputs, statuses({ "invariant-checks": "failure" }));
+
+    expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
+    expect(read.findings[0]?.file).toBe("invariant-checks/checks-result.json");
+    expect(read.findings[0]?.message).toBe("artifact not found");
   });
 
   it("never reads an artifact for a non-success job, even a malformed one", async () => {
@@ -93,12 +131,12 @@ describe("readStageResults", () => {
     expect(codes(read.findings)).toEqual(["upstream.job_cancelled"]);
   });
 
-  it("requires an artifact from a success job and says it was not found", async () => {
-    const inputs = await makeInputs({ "invariant-checks": null });
+  it("requires an artifact from a success job and names the real file", async () => {
+    const inputs = await makeInputs({ "invariant-registry": null });
     const read = await readStageResults(inputs, statuses());
 
     expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
-    expect(read.findings[0]?.file).toBe("invariant-checks/stage-result.json");
+    expect(read.findings[0]?.file).toBe("invariant-registry/registry-result.json");
     expect(read.findings[0]?.message).toBe("artifact not found");
   });
 
@@ -110,80 +148,22 @@ describe("readStageResults", () => {
     expect(read.findings[0]?.message).toContain("not valid JSON");
   });
 
-  it("rejects an artifact whose stage disagrees with its directory", async () => {
-    const inputs = await makeInputs({
-      "invariant-checks": `${JSON.stringify({
-        stage: "registry",
-        job: "invariant-checks",
-        exit_code: 0,
-        findings: [],
-      })}\n`,
-    });
+  it("rejects a payload that is not the stage's own shape", async () => {
+    // A checks payload in the registry slot: nothing produces this, and a
+    // finding list cannot be inferred from it.
+    const inputs = await makeInputs({ "invariant-registry": artifact("invariant-checks") });
     const read = await readStageResults(inputs, statuses());
 
     expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
-    expect(read.findings[0]?.message).toContain('stage is "registry", expected "checks"');
+    expect(read.findings[0]?.message).toContain("findings is not an array");
   });
 
-  it("rejects an artifact whose job disagrees with its directory", async () => {
-    const inputs = await makeInputs({
-      "invariant-negative": artifact("invariant-checks"),
-    });
+  it("rejects a checks payload with no checks array", async () => {
+    const inputs = await makeInputs({ "invariant-checks": `${JSON.stringify({ findings: [] })}\n` });
     const read = await readStageResults(inputs, statuses());
 
     expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
-    expect(read.findings[0]?.message).toContain(
-      'job is "invariant-checks", expected "invariant-negative"',
-    );
-  });
-
-  it("propagates a registry artifact's findings and does not add job_failed", async () => {
-    const finding = { code: "registry.invalid_id", message: "bad id", file: "rules/sales.yaml" };
-    const inputs = await makeInputs({
-      "invariant-registry": artifact("invariant-registry", { findings: [finding] }, 2),
-    });
-    const read = await readStageResults(inputs, statuses());
-
-    expect(read.findings).toHaveLength(1);
-    expect(read.findings[0]).toMatchObject(finding);
-  });
-
-  it("propagates the negative artifact's negative.findings, not its top-level findings", async () => {
-    const nested = { code: "negative.sabotage_missing", message: "missing", file: "rules/flows/x.yaml" };
-    const inputs = await makeInputs({
-      "invariant-negative": artifact(
-        "invariant-negative",
-        {
-          findings: [{ code: "negative.top_level", message: "ignored", file: "x" }],
-          negative: { declared: 1, executed: false, findings: [nested] },
-        },
-        2,
-      ),
-    });
-    const read = await readStageResults(inputs, statuses());
-
-    expect(read.findings).toEqual([nested]);
-  });
-
-  it("adds upstream.job_failed for a non-zero artifact with nothing propagated", async () => {
-    const inputs = await makeInputs({ "invariant-negative": artifact("invariant-negative", {}, 1) });
-    const read = await readStageResults(inputs, statuses());
-
-    expect(codes(read.findings)).toEqual(["upstream.job_failed"]);
-    expect(read.findings[0]?.message).toContain("negative");
-  });
-
-  it("does not propagate a checks artifact's findings; a non-zero exit still fails", async () => {
-    const inputs = await makeInputs({
-      "invariant-checks": artifact(
-        "invariant-checks",
-        { findings: [{ code: "adapter.broken", message: "x", file: "x" }], checks: [] },
-        2,
-      ),
-    });
-    const read = await readStageResults(inputs, statuses());
-
-    expect(codes(read.findings)).toEqual(["upstream.job_failed"]);
+    expect(read.findings[0]?.message).toContain("checks is not an array");
   });
 
   it("rejects a checks entry with an unknown outcome as a shape mismatch", async () => {
@@ -196,5 +176,68 @@ describe("readStageResults", () => {
 
     expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
     expect(read.findings[0]?.message).toContain("checks[0].outcome");
+  });
+
+  it("rejects a finding without a file as a shape mismatch", async () => {
+    const inputs = await makeInputs({
+      "invariant-registry": artifact("invariant-registry", {
+        findings: [{ code: "registry.invalid_id", message: "bad id" }],
+      }),
+    });
+    const read = await readStageResults(inputs, statuses());
+
+    expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
+    expect(read.findings[0]?.message).toContain("findings[0].file is not a string");
+  });
+
+  it("propagates the registry artifact's findings", async () => {
+    const finding = { code: "registry.invalid_id", message: "bad id", file: "rules/sales.yaml" };
+    const inputs = await makeInputs({
+      "invariant-registry": artifact("invariant-registry", { findings: [finding] }),
+    });
+    const read = await readStageResults(inputs, statuses());
+
+    expect(read.findings).toEqual([finding]);
+  });
+
+  it("propagates the negative artifact's flat findings (negative --json)", async () => {
+    const finding = { code: "negative.sabotage_missing", message: "missing", file: "rules/flows/x.yaml" };
+    const inputs = await makeInputs({
+      "invariant-negative": artifact("invariant-negative", { findings: [finding] }),
+    });
+    const read = await readStageResults(inputs, statuses());
+
+    expect(read.findings).toEqual([finding]);
+  });
+
+  it("accepts the extended negative payload and records declared/executed", async () => {
+    const inputs = await makeInputs({
+      "invariant-negative": artifact("invariant-negative", { declared: 2, executed: true }),
+    });
+    const read = await readStageResults(inputs, statuses());
+
+    expect(read.findings).toEqual([]);
+    expect(read.results[2]?.negative).toEqual({ declared: 2, executed: true, findings: [] });
+  });
+
+  it("rejects a negative payload where declared and executed disagree on presence", async () => {
+    const inputs = await makeInputs({
+      "invariant-negative": artifact("invariant-negative", { declared: 2 }),
+    });
+    const read = await readStageResults(inputs, statuses());
+
+    expect(codes(read.findings)).toEqual(["upstream.artifact_missing"]);
+    expect(read.findings[0]?.message).toContain("executed");
+  });
+
+  it("does not propagate the checks artifact's findings", async () => {
+    const inputs = await makeInputs({
+      "invariant-checks": artifact("invariant-checks", {
+        findings: [{ code: "adapter.broken", message: "x", file: "x" }],
+      }),
+    });
+    const read = await readStageResults(inputs, statuses());
+
+    expect(read.findings).toEqual([]);
   });
 });
