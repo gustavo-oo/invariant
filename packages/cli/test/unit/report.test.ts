@@ -28,6 +28,10 @@ interface ReportOptions {
   enforcedRules?: number;
   /** The rule's sabotage proof; `false` must read `checked`, `true` `proven`. */
   sabotageVerified?: boolean;
+  /** The rule/check verdict; `blocked` pairs with a non-proof outcome. */
+  verdict?: "pass" | "blocked";
+  /** Override the check's negative-control outcome. */
+  negativeOutcome?: SabotageOutcome;
   /** Adds a second rule that no flow step names. */
   outsideRule?: string;
   class?: GuaranteeClass;
@@ -53,9 +57,13 @@ function reportWith(options: ReportOptions = {}): Report {
   const statement = options.statement ?? "A sale MUST NOT complete when stock is insufficient.";
   const ruleCount = options.enforcedRules ?? 1;
   const verified = options.sabotageVerified ?? false;
-  const control: SabotageOutcome = verified
-    ? { status: "applied", classification: "assertion" }
-    : { status: "not-executed" };
+  const verdict = options.verdict ?? "pass";
+  const reason = verdict === "pass" ? "check.passed" : "check.blocked";
+  const control: SabotageOutcome =
+    options.negativeOutcome ??
+    (verified
+      ? { status: "applied", classification: "assertion" }
+      : { status: "not-executed" });
 
   const rules: WireRuleVerdict[] = Array.from({ length: ruleCount }, (_, index) => ({
     rule_id: ruleCount === 1 ? "SALES-004" : `SALES-00${index + 4}`,
@@ -63,8 +71,8 @@ function reportWith(options: ReportOptions = {}): Report {
     capability: "sales",
     criticality: "normal",
     status: "enforced",
-    verdict: "pass",
-    reason: "check.passed",
+    verdict,
+    reason,
     check_ids: [`sales.check-${index + 1}`],
     sabotage_verified: verified,
   }));
@@ -78,8 +86,8 @@ function reportWith(options: ReportOptions = {}): Report {
     file: "src/sales.test.ts",
     line: 4,
     runtime_id: `checkout > sale check ${index + 1}`,
-    verdict: "pass",
-    reason: "check.passed",
+    verdict,
+    reason,
     negative_control: control,
   }));
 
@@ -155,10 +163,17 @@ function reportWith(options: ReportOptions = {}): Report {
       {
         flow_id: "checkout",
         criticality: "normal",
-        verdict: "pass",
-        reason: "flow_passed",
+        verdict,
+        reason: verdict === "pass" ? "flow_passed" : "governing_rule_not_green",
         check_ids: ["checkout.completes"],
-        steps: [{ step_id: "s1", verdict: "pass", reason: "governing_rule_green", rule_ids: flowRuleIds }],
+        steps: [
+          {
+            step_id: "s1",
+            verdict,
+            reason: verdict === "pass" ? "governing_rule_green" : "governing_rule_not_green",
+            rule_ids: flowRuleIds,
+          },
+        ],
       },
     ],
     exit_code: options.exitCode ?? 1,
@@ -191,8 +206,27 @@ describe("renderComment (spec §8 stage 8)", () => {
   it("states the guarantee class and the declared-only negative control", () => {
     const md = renderComment(reportWith({}));
     expect(md).toContain("## invariant — G3 (procedural)");
-    expect(md).toContain("Seam sabotage is NOT executed in this delivery");
+    expect(md).toContain("Seam sabotage was NOT executed in this run");
     expect(md).toContain("| Flow | Verdict | Step | Rule | Verdict | Check | Reason |");
+  });
+
+  it("counts the executed negative control and never says proven without every check", () => {
+    const proven = renderComment(reportWith({ negativeControl: "executed", sabotageVerified: true }));
+    expect(proven).toContain("### Negative control");
+    expect(proven).toContain("Executed — 1 of 1 enforced checks proven able to fail.");
+    expect(proven).not.toContain("Seam sabotage was NOT executed");
+
+    const blocked = renderComment(
+      reportWith({
+        negativeControl: "executed",
+        verdict: "blocked",
+        negativeOutcome: { status: "not-applied" },
+      }),
+    );
+    expect(blocked).toContain("Executed — 0 of 1 enforced checks proven able to fail.");
+    expect(blocked).toContain("not-applied");
+    expect(blocked).toContain("(checked)");
+    expect(blocked).not.toContain("(proven)");
   });
 
   it("names the mechanism in the heading and warns below G1 only", () => {
@@ -236,7 +270,7 @@ describe("renderComment (spec §8 stage 8)", () => {
     const positions = [
       "## invariant — G3 (procedural)",
       "**Guarantee class: G3 (procedural).**",
-      "Seam sabotage is NOT executed",
+      "Seam sabotage was NOT executed",
       "**No guarantee is claimed by this run.**",
       "| Flow | Verdict | Step | Rule | Verdict | Check | Reason |",
       "### Rules outside any flow",

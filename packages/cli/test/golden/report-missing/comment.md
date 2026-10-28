@@ -4,7 +4,7 @@
 - Branch-protection observation is unavailable, so the class cannot be G1.
 - No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2.
 
-Seam sabotage is NOT executed in this delivery (Phase 2). No rule is proven able to fail.
+Seam sabotage was NOT executed in this run. No rule is proven able to fail.
 
 **No guarantee is claimed by this run.**
 

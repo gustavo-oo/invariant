@@ -11,7 +11,8 @@
  * (review focus 2). The table pipes `renderComment` generates are never escaped.
  */
 import type { GuaranteeClass } from "../guarantee/class.js";
-import type { Report, WireFinding, WireRuleVerdict } from "./shape.js";
+import { isProof } from "../verdict/proof.js";
+import type { Report, WireCheckVerdict, WireFinding, WireRuleVerdict } from "./shape.js";
 
 const MECHANISM: Record<GuaranteeClass, string> = {
   G1: "observed",
@@ -19,7 +20,7 @@ const MECHANISM: Record<GuaranteeClass, string> = {
   G3: "procedural",
 };
 
-const DECLARED_ONLY_BANNER = "Seam sabotage is NOT executed in this delivery (Phase 2). No rule is proven able to fail.";
+const DECLARED_ONLY_BANNER = "Seam sabotage was NOT executed in this run. No rule is proven able to fail.";
 const CLASS_WARNING = "**No guarantee is claimed by this run.**";
 const NO_ENFORCED_RULES = "No enforced rules are declared";
 
@@ -28,7 +29,8 @@ export function renderComment(report: Report): string {
   const { guarantee } = report;
   const blocks: string[] = [heading(guarantee.class), classBanner(guarantee.class, guarantee.binding, guarantee.class_reasons)];
 
-  if (guarantee.negative_control === "declared-only") blocks.push(DECLARED_ONLY_BANNER);
+  if (guarantee.negative_control === "executed") blocks.push(renderNegativeControl(report));
+  else blocks.push(DECLARED_ONLY_BANNER);
   if (guarantee.class !== "G1") blocks.push(CLASS_WARNING);
 
   // A gate failure stopped the run before any rule could be evaluated: "No
@@ -64,6 +66,51 @@ export function renderComment(report: Report): string {
 
 function heading(cls: GuaranteeClass): string {
   return `## invariant — ${cls} (${MECHANISM[cls]})`;
+}
+
+/**
+ * The executed negative control: how many enforced checks are proven able to
+ * fail, and exactly which ones are not. A rule row says `proven` only when this
+ * section counts every one of its checks.
+ */
+function renderNegativeControl(report: Report): string {
+  const rules = report.rules.filter((rule) => rule.status === "enforced");
+  const checks = new Map(report.checks.map((check) => [check.check_id, check]));
+  const seen = new Set<string>();
+  let total = 0;
+  let proven = 0;
+  const unproven: string[] = [];
+
+  for (const rule of rules) {
+    for (const checkId of rule.check_ids) {
+      if (seen.has(checkId)) continue;
+      seen.add(checkId);
+      total += 1;
+
+      const check = checks.get(checkId);
+      if (check !== undefined && isProof(check.negative_control)) {
+        proven += 1;
+        continue;
+      }
+
+      const outcome = check?.negative_control;
+      const label =
+        outcome === undefined
+          ? "not found"
+          : outcome.status === "applied"
+            ? `applied (${outcome.classification})`
+            : outcome.status;
+      unproven.push(`- ${cell(rule.rule_id)} / ${cell(checkId)} — ${cell(label)}`);
+    }
+  }
+
+  const lines = [
+    "### Negative control",
+    "",
+    `Executed — ${proven} of ${total} enforced checks proven able to fail.`,
+  ];
+  if (unproven.length > 0) lines.push("", ...unproven);
+  return lines.join("\n");
 }
 
 function classBanner(cls: GuaranteeClass, binding: boolean, reasons: string[]): string {

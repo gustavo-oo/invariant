@@ -4,6 +4,10 @@
 - Branch-protection observation is unavailable, so the class cannot be G1.
 - No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2.
 
+### Negative control
+
+Executed — 1 of 1 enforced checks proven able to fail.
+
 **No guarantee is claimed by this run.**
 
 | Flow | Verdict | Step | Rule | Verdict | Check | Reason |
