@@ -1,0 +1,4 @@
+{
+  "args": ["doctor", "--json"],
+  "exit_code": 0
+}

@@ -1,0 +1,4 @@
+{
+  "args": ["verdict", "--inputs", ".", "--job-status", "invariant-checks=success"],
+  "exit_code": 2
+}

@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "invariant",
+    "version": "<version>"
+  },
+  "inputs": {
+    "mode": "push",
+    "base": null,
+    "head": null,
+    "repo": null,
+    "run_id": null
+  },
+  "guarantee": {
+    "class": "G3",
+    "class_reasons": [
+      "Branch-protection observation is unavailable, so the class cannot be G1.",
+      "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+    ],
+    "binding": false,
+    "negative_control": "declared-only",
+    "doctor": {
+      "ran": false,
+      "class": "G3",
+      "reasons": [
+        "Branch-protection observation is unavailable, so the class cannot be G1.",
+        "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+      ],
+      "findings": [],
+      "observation": "unavailable"
+    }
+  },
+  "registry": {
+    "files": [
+      "rules/sales.yaml"
+    ],
+    "hashes": {
+      "rules/sales.yaml": "sha256:b96fd8a41c00ecf8959a192543e74c7b8f486003ceb368eec7147f3240340881"
+    }
+  },
+  "immutability": {
+    "protected_paths_changed": [],
+    "flagged": false
+  },
+  "integrity": [
+    {
+      "code": "upstream.artifact_missing",
+      "message": "artifact not found",
+      "file": "invariant-checks/checks-result.json"
+    },
+    {
+      "code": "upstream.job_missing",
+      "message": "invariant-negative has no --job-status entry; a missing job is never a pass",
+      "file": "invariant-negative/negative-result.json"
+    },
+    {
+      "code": "upstream.job_missing",
+      "message": "invariant-registry has no --job-status entry; a missing job is never a pass",
+      "file": "invariant-registry/registry-result.json"
+    }
+  ],
+  "checks": [
+    {
+      "check_id": "sales.rejects-insufficient-stock",
+      "rule_ids": [
+        "SALES-004"
+      ],
+      "flow_refs": [],
+      "layer": "unit",
+      "file": "src/sales.test.ts",
+      "line": 5,
+      "runtime_id": "is rejected when stock is insufficient",
+      "verdict": "not-run",
+      "reason": "check.not_run",
+      "negative_control": {
+        "status": "not-executed"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "SALES-004",
+      "statement": "A sale MUST NOT complete when stock is insufficient.",
+      "capability": "sales",
+      "criticality": "critical",
+      "status": "enforced",
+      "verdict": "not-run",
+      "reason": "check.not_run",
+      "check_ids": [
+        "sales.rejects-insufficient-stock"
+      ],
+      "sabotage_verified": false
+    }
+  ],
+  "flows": [],
+  "exit_code": 2
+}

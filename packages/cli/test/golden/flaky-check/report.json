@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "invariant",
+    "version": "<version>"
+  },
+  "inputs": {
+    "mode": "local",
+    "base": null,
+    "head": null,
+    "repo": null,
+    "run_id": null
+  },
+  "guarantee": {
+    "class": "G3",
+    "class_reasons": [
+      "Branch-protection observation is unavailable, so the class cannot be G1.",
+      "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+    ],
+    "binding": false,
+    "negative_control": "declared-only",
+    "doctor": {
+      "ran": false,
+      "class": "G3",
+      "reasons": [
+        "Branch-protection observation is unavailable, so the class cannot be G1.",
+        "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2."
+      ],
+      "findings": [],
+      "observation": "unavailable"
+    }
+  },
+  "registry": {
+    "files": [
+      "rules/sales.yaml"
+    ],
+    "hashes": {
+      "rules/sales.yaml": "sha256:96ff1a977850c778589d5e2b3a040277b0b93b75d001770c4b792ad892b54dfa"
+    }
+  },
+  "immutability": {
+    "protected_paths_changed": [],
+    "flagged": false
+  },
+  "integrity": [],
+  "checks": [
+    {
+      "check_id": "sales.is-idempotent",
+      "rule_ids": [
+        "SALES-007"
+      ],
+      "flow_refs": [],
+      "layer": "integration",
+      "file": "src/sales.test.ts",
+      "line": 7,
+      "runtime_id": "sales > is idempotent when submitted twice",
+      "verdict": "flaky",
+      "reason": "check.flaky",
+      "negative_control": {
+        "status": "not-executed"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "SALES-007",
+      "statement": "A sale MUST be idempotent when submitted twice.",
+      "capability": "sales",
+      "criticality": "critical",
+      "status": "enforced",
+      "verdict": "flaky",
+      "reason": "check.flaky",
+      "check_ids": [
+        "sales.is-idempotent"
+      ],
+      "sabotage_verified": false
+    }
+  ],
+  "flows": [],
+  "exit_code": 1
+}

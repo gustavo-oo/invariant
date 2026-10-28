@@ -1,0 +1,4 @@
+{
+  "args": ["verify", "--reports", "reports/vitest.json"],
+  "exit_code": 1
+}

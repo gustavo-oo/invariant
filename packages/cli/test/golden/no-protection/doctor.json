@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "repo": null,
+  "run_id": null,
+  "class": "G3",
+  "reasons": [
+    "Branch-protection observation is unavailable, so the class cannot be G1.",
+    "Protection findings block a mechanical guarantee: codeowners.missing.",
+    "No credential boundary is declared in .invariant/config.yaml, so the class cannot be G2.",
+    "Branch-protection observation is unavailable.",
+    "The repository has no .github/CODEOWNERS file."
+  ],
+  "findings": [
+    {
+      "code": "protection.unavailable",
+      "severity": "info",
+      "message": "no token for INVARIANT_DOCTOR_TOKEN"
+    },
+    {
+      "code": "codeowners.missing",
+      "severity": "fail",
+      "message": "No .github/CODEOWNERS file."
+    }
+  ],
+  "observation": {
+    "available": false,
+    "reason": "no token for INVARIANT_DOCTOR_TOKEN"
+  }
+}

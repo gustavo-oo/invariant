@@ -1,0 +1,5 @@
+{
+  "args": ["validate"],
+  "exit_code": 0,
+  "setup": "git-rule-change"
+}

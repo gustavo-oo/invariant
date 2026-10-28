@@ -1,0 +1,14 @@
+{
+  "args": [
+    "verdict",
+    "--inputs",
+    ".",
+    "--job-status",
+    "invariant-registry=cancelled",
+    "--job-status",
+    "invariant-checks=success",
+    "--job-status",
+    "invariant-negative=success"
+  ],
+  "exit_code": 2
+}
