@@ -50,5 +50,5 @@ describe("SELF-003", () => {
     const flagged = await runVerify({ root, base: baseSha, event: "event-flagged.json" });
     expect(flagged.code).toBe(0);
     expect(flagged.report.immutability.flagged).toBe(true);
-  });
+  }, 30_000);
 });

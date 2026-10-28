@@ -53,8 +53,8 @@ rules:
         layer: unit
         negative_control:
           kind: seam
-          seam: "createSabotageSource(root)"
-          sabotage: .invariant/sabotages/self/sabotage-source.ts
+          seam: "isProof(outcome)"
+          sabotage: .invariant/sabotages/self/proof.ts
 
   - id: SELF-005
     statement: "The verifier MUST NOT report a guarantee class the environment does not support."
