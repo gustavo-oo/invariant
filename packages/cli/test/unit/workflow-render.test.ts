@@ -39,6 +39,7 @@ interface Workflow {
         env?: Record<string, string>;
         with?: Record<string, unknown>;
       }>;
+      "timeout-minutes"?: number;
     }
   >;
 }
@@ -61,10 +62,28 @@ describe("renderWorkflow", () => {
       "invariant-checks",
       "invariant-negative",
     ]);
-    expect(Object.keys(yml.on).sort()).toEqual(["merge_group", "pull_request", "workflow_call"]);
+    expect(Object.keys(yml.on).sort()).toEqual([
+      "merge_group",
+      "pull_request",
+      "schedule",
+      "workflow_call",
+      "workflow_dispatch",
+    ]);
     for (const job of Object.values(yml.jobs)) {
       expect(job.permissions?.["contents"]).toBe("read");
     }
+  });
+
+  it("schedules a full run and bounds every job", async () => {
+    const text = renderWorkflow(await readFile(TEMPLATE, "utf8"), await defaults());
+    const yml = parse(text) as Workflow;
+
+    expect(yml.on["schedule"]).toEqual([{ cron: "0 3 * * *" }]);
+    expect(yml.on["workflow_dispatch"]).toEqual({});
+    expect(yml.jobs["invariant-registry"]?.["timeout-minutes"]).toBe(10);
+    expect(yml.jobs["invariant-checks"]?.["timeout-minutes"]).toBe(20);
+    expect(yml.jobs["invariant-negative"]?.["timeout-minutes"]).toBe(30);
+    expect(yml.jobs["invariant-verdict"]?.["timeout-minutes"]).toBe(10);
   });
 
   it("pins the CI contract: full history, the event, and the three artifacts", async () => {

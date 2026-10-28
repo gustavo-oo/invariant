@@ -17,6 +17,12 @@ describe("invariant validate", () => {
     await expectGolden("empty-registry", run.stdout, "stdout.txt");
   });
 
+  it("treats an empty --base as no diff", async () => {
+    const run = await runFixture("healthy-registry", { args: ["validate", "--base", ""] });
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).not.toContain("immutability.diff_unavailable");
+  });
+
   it("exits 2, not 1, when an I/O failure prevents the verifier from running", async () => {
     // `missing-dir` does not exist, so writeFileSync fails deterministically —
     // no permissions trick. An infrastructure failure is "the verifier could

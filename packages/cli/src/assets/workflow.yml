@@ -13,6 +13,9 @@ name: invariant
 on:
   pull_request: {}
   merge_group: {}
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
   workflow_call:
     inputs:
       reports:
@@ -28,6 +31,7 @@ jobs:
   invariant-registry:
     name: invariant-registry
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -57,6 +61,7 @@ jobs:
   invariant-checks:
     name: invariant-checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -85,6 +90,7 @@ jobs:
   invariant-negative:
     name: invariant-negative
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -112,6 +118,7 @@ jobs:
   invariant-verdict:
     name: invariant-verdict
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [invariant-registry, invariant-checks, invariant-negative]
     if: always()
     permissions:

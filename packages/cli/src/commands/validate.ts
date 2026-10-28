@@ -204,7 +204,7 @@ function parseArgs(argv: string[], io: CliIo): { kind: "ok"; options: Options } 
         index += 1;
         if (arg === "--root") root = path.resolve(io.cwd, value);
         else if (arg === "--out") out = value;
-        else if (arg === "--base") base = value;
+        else if (arg === "--base") base = value === "" ? null : value;
         // An explicit event path is cwd-relative like every other CLI path;
         // `GITHUB_EVENT_PATH` (used when this is null) is already absolute.
         else event = path.resolve(io.cwd, value);

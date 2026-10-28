@@ -76,6 +76,18 @@ describe("invariant verify", () => {
     await expectGolden("healthy-registry", run.comment!, "comment.md");
   });
 
+  it("treats an empty --base as no diff (H8)", async () => {
+    const run = await runFixture("healthy-registry", {
+      args: ["verify", "--base", ""],
+      env: hermeticEnv(),
+    });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.report?.inputs.base).toBeNull();
+    expect(run.report?.immutability.protected_paths_changed).toEqual([]);
+    expect(run.stderr).toBe("");
+  });
+
   it("exits 1 when a check is flaky per the read report", async () => {
     const run = await runFixture("flaky-check", {
       args: ["verify", "--reports", "reports/vitest.json"],
