@@ -82,9 +82,11 @@ async function runVitest(files: string[], opts: RunOpts, outputFile: string): Pr
   try {
     const { stderr } = await execFileAsync(process.execPath, [vitestEntry(opts.root), ...args], {
       cwd: opts.root,
-      env: { ...process.env, ...opts.env },
+      // A provided env is the *complete* environment; merging would leak the
+      // caller's secrets into a sabotaged run (Phase 2, spec §7).
+      env: opts.env ?? process.env,
       maxBuffer: MAX_BUFFER,
-      timeout: TIMEOUT_MS,
+      timeout: opts.timeoutMs ?? TIMEOUT_MS,
       windowsHide: true,
     });
     return stderr;

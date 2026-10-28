@@ -117,5 +117,11 @@ function unavailableAdapter(id: string): Adapter {
     async readReports() {
       return null;
     },
+    async applySabotage() {
+      return { status: "not-applied" };
+    },
+    classifyFailure() {
+      return "harness";
+    },
   };
 }

@@ -1,7 +1,8 @@
 import path from "node:path";
 import type { DiscoveredCheck, DiscoveryError, DiscoveryResult } from "../../discovery/types.js";
 import { readText } from "../../fsutil.js";
-import type { Adapter, CheckResult, RunOpts } from "../api.js";
+import type { SabotageOutcome } from "../../verdict/types.js";
+import type { Adapter, CheckResult, RunOpts, SabotageSpec } from "../api.js";
 import { discoverTestFile, listTestFiles } from "./ast.js";
 import { readReports as readVitestReports } from "./report.js";
 import { runChecks } from "./run.js";
@@ -40,6 +41,18 @@ export const vitestAdapter: Adapter = {
 
   async readReports(paths: string[], root: string): Promise<CheckResult[] | null> {
     return readVitestReports(paths, root);
+  },
+
+  async applySabotage(_spec: SabotageSpec): Promise<SabotageOutcome> {
+    // Task 3 replaces this with the copy-and-replace implementation. Until
+    // then the adapter cannot claim proof: a non-proof outcome blocks the rule.
+    return { status: "not-applied" };
+  },
+
+  classifyFailure(_result: CheckResult): "assertion" | "harness" | "timeout" {
+    // Task 3 owns the real classifier; `harness` is the safe default because it
+    // can never become proof.
+    return "harness";
   },
 };
 

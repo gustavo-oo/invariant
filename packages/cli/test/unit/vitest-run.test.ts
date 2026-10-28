@@ -111,6 +111,35 @@ it("returns no results and does not spawn when there is nothing to run", async (
   expect(await runChecks([], { root: "/does/not/exist" })).toEqual([]);
 });
 
+it("replaces the child environment instead of merging the parent's", async () => {
+  const previous = process.env.INVARIANT_TEST_SECRET;
+  process.env.INVARIANT_TEST_SECRET = "parent-secret";
+  try {
+    const root = await makeVitestRepo({
+      "package.json": "{}",
+      "src/env.test.ts": [
+        'import { expect, test } from "vitest";',
+        "// @check sales.env",
+        "// @rule SALES-004",
+        'test("does not inherit the parent secret", () => { expect(process.env.INVARIANT_TEST_SECRET).toBeUndefined(); });',
+        "",
+      ].join("\n"),
+    });
+    const [check] = (await findAdapter("vitest")!.discover(root)).checks;
+    const env: Record<string, string> = {
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+    };
+    if (process.env.TMPDIR !== undefined) env["TMPDIR"] = process.env.TMPDIR;
+
+    const [result] = await runChecks([check!], { root, env });
+    expect(result).toMatchObject({ runtimeId: check!.runtimeId, outcome: "pass" });
+  } finally {
+    if (previous === undefined) delete process.env.INVARIANT_TEST_SECRET;
+    else process.env.INVARIANT_TEST_SECRET = previous;
+  }
+});
+
 it("reads the report even when a failing test makes vitest exit non-zero", async () => {
   const root = await makeVitestRepo({
     "package.json": "{}",

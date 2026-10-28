@@ -242,47 +242,64 @@ Tasks 1–14 are Part A (the §7 guarantee); tasks 15–18 are Part B (Vue 3 + F
 - Produces: `RunOpts = { root: string; env?: Record<string, string>; timeoutMs?: number }`; `SabotageSpec = { check: DiscoveredCheck; sabotagePath: string; seamAlias: string; sabotageText: string; workdir: string; env: Record<string, string>; timeoutMs?: number }`; `Adapter` gains `applySabotage(spec: SabotageSpec): Promise<SabotageOutcome>` and `classifyFailure(result: CheckResult): "assertion" | "harness" | "timeout"`.
 - `stubAdapter` gains optional `sabotageOutcomes?: Map<string, SabotageOutcome>` and `classifications?: Map<string, "assertion" | "harness" | "timeout">`; defaults are `not-executed` / `harness`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/cli/test/unit/adapter-contract.test.ts
 import { describe, expect, it } from "vitest";
+import type { SabotageSpec } from "../../src/adapter/api.js";
+import type { DiscoveredCheck } from "../../src/discovery/types.js";
 import { stubAdapter } from "../helpers/stub-adapter.js";
+
+const check: DiscoveredCheck = {
+  checkId: "sales.a", rules: ["SALES-004"], flows: [], testName: "a",
+  file: "a.test.ts", line: 1, frameworkId: "stub", runtimeId: "a",
+};
+
+const spec: SabotageSpec = {
+  check, sabotagePath: ".invariant/sabotages/a.ts", seamAlias: "src/a.ts",
+  sabotageText: "export const a = 1", workdir: "/tmp/x", env: {},
+};
 
 describe("Adapter contract", () => {
   it("exposes applySabotage and classifyFailure on every adapter", async () => {
-    const adapter = stubAdapter({ discovered: [], results: [], sabotageOutcomes: new Map([["sales.a", { status: "applied", classification: "assertion" }]]) });
-    expect(typeof adapter.applySabotage).toBe("function");
+    const adapter = stubAdapter({
+      discovered: [], results: [],
+      sabotageOutcomes: new Map([["sales.a", { status: "applied", classification: "assertion" }]]),
+    });
     expect(adapter.classifyFailure({ runtimeId: "a", outcome: "fail", message: "AssertionError: expected 1 to be 2" })).toBe("assertion");
-    await expect(adapter.applySabotage({
-      check: { checkId: "sales.a", rules: [], flows: [], testName: "a", file: "a.test.ts", line: 1, frameworkId: "stub", runtimeId: "a" },
-      sabotagePath: ".invariant/sabotages/a.ts", seamAlias: "src/a.ts", sabotageText: "export const a = 1", workdir: "/tmp/x", env: {},
-    })).resolves.toEqual({ status: "applied", classification: "assertion" });
+    await expect(adapter.applySabotage(spec)).resolves.toEqual({ status: "applied", classification: "assertion" });
+  });
+
+  it("defaults an unconfigured sabotage to not-executed and an unknown failure to harness", async () => {
+    const adapter = stubAdapter({ discovered: [], results: [] });
+    await expect(adapter.applySabotage(spec)).resolves.toEqual({ status: "not-executed" });
+    expect(adapter.classifyFailure({ runtimeId: "a", outcome: "fail", message: "boom" })).toBe("harness");
   });
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `cd packages/cli && npx vitest run test/unit/adapter-contract.test.ts` → FAIL (missing methods).
 
-- [ ] **Step 3: Implement the contract**
+- [x] **Step 3: Implement the contract**
 
 Add the two methods to `Adapter` and `SabotageSpec` to `adapter/api.ts`. In `run.ts`, change the child environment from merge to replacement:
 
 ```ts
-const env = opts.env ?? process.env;
+env: opts.env ?? process.env
 ```
 
-`timeoutMs` defaults to `120_000` in `runVitest` and to `600_000` in the Playwright adapter. `unavailableAdapter` in `context.ts` gets `applySabotage` returning `{ status: "not-applied" }` and `classifyFailure` returning `"harness"`.
+`timeoutMs` defaults to `120_000` in `runVitest` and to `600_000` in the Playwright adapter. The shipped `vitestAdapter` and `unavailableAdapter` get fail-closed placeholders (`not-applied` / `harness`) until Task 3 replaces them.
 
-- [ ] **Step 4: Pin the env semantics with a real child process**
+- [x] **Step 4: Pin the env semantics with a real child process**
 
-Add a test in `test/unit/vitest-run.test.ts` that sets `process.env.INVARIANT_TEST_SECRET = "parent"`, runs `runChecks` with `env: { PATH: process.env.PATH ?? "" }`, and asserts the child's test sees `undefined`. This is the guarantee that a sabotaged run cannot inherit a token.
+Add a test in `test/unit/vitest-run.test.ts` that sets `process.env.INVARIANT_TEST_SECRET = "parent-secret"`, runs `runChecks` with an environment containing only `PATH`, `HOME` and (when set) `TMPDIR`, and asserts the child's test sees `undefined`. Vitest needs `HOME`; the secret must not survive.
 
-- [ ] **Step 5: Run the tests, then commit**
+- [x] **Step 5: Run the tests, then commit**
 
-Run: `cd packages/cli && npx vitest run test/unit/adapter-contract.test.ts test/unit/vitest-run.test.ts` → PASS. Then `git add -A && git commit -m "feat(adapter): sabotage contract, classifyFailure, replace-not-merge env"`
+Run: `cd packages/cli && npx vitest run test/unit/adapter-contract.test.ts test/unit/vitest-run.test.ts` → PASS (15 tests), then `npm test` → PASS (344 tests). Then `git add -A && git commit -m "feat(adapter): sabotage contract, classifyFailure, replace-not-merge env"`
 
 ### Task 2: Isolated sandbox, symlink farm and sanitized environment
 
