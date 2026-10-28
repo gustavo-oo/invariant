@@ -214,7 +214,9 @@ The short version:
 - `@gustavo-oo` remains the only code owner;
 - the ruleset requires one approval, code-owner review and `invariant-verdict`,
   with `bypass_actors: []`;
-- classic branch protection restricts `main` pushes to the human;
+- classic branch protection restricts `main` pushes to the human when the
+  repository is organization-owned; user-owned repositories reject user/team
+  restrictions;
 - the clean session uses **only** the App installation token, never a human
   `gh` session;
 - the human approves and merges; the bot cannot do either.

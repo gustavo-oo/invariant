@@ -125,10 +125,18 @@ merge after the human approves. Add a classic branch protection rule for `main`:
 3. Add only `gustavo-oo` (and any second human reviewer). Do **not** add the App.
 4. Keep the ruleset active; it supplies the required check and code-owner gate.
 
+GitHub only allows user/team restrictions on **organization** repositories. On a
+user-owned repository (as in this deployment), the API rejects the
+`restrictions` object with `422 Only organization repositories can have users
+and team restrictions`; send `"restrictions": null`. The required check and
+code-owner review still prevent self-approval, but a write-capable bot can merge
+after a human approval. Move the repository to an organization if that residual
+risk is unacceptable.
+
 Use classic branch protection for this allowlist, not a ruleset bypass actor:
 the doctor reads ruleset bypass actors, and the G1 baseline must keep that list
 empty. The human's UI merge is a human push and remains allowed; the bot's merge
-or direct push is rejected.
+or direct push is rejected where restrictions are available.
 
 ## Step 5 — mint the bot token in the clean session
 
@@ -247,7 +255,8 @@ INVARIANT_DOCTOR_TOKEN=... node packages/cli/dist/cli.js doctor --strict \
       `gh api /installation/repositories` lists only the scoped repo.
 - [ ] Ruleset active; required check `invariant-verdict`; `bypass_actors: []`.
 - [ ] CODEOWNERS lists only the human reviewer(s).
-- [ ] Classic branch protection restricts `main` pushes to the human.
+- [ ] On an organization-owned repo, classic branch protection restricts `main`
+      pushes to the human; on a user-owned repo, the 422 limitation is recorded.
 - [ ] Bot PR author is the bot; the bot gets 422 when approving its own PR.
 - [ ] Human approval is required; the human merges from the UI.
 - [ ] Bot direct push to `main` is rejected.
