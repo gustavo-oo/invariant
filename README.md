@@ -123,8 +123,10 @@ The public dogfood repository is <https://github.com/gustavo-oo/invariant>. Its
 [deployment record](docs/deployment.md) includes the imported protection
 ruleset, the red-PR evidence and the G1 helper. The ruleset is currently
 **disabled** so a solo maintainer can merge without a second reviewer; the
-honest class is **G3 (procedural)**. The record explains the G1 evidence and how
-to restore it.
+honest class is **G3 (procedural)**. The
+[agent identity handoff](docs/agent-identity-handoff.md) documents how to move
+the agent to a separate GitHub App identity, restore the reviewer gate and
+record G1.
 
 ## Development
 

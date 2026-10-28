@@ -152,6 +152,8 @@ development, so the honest class is G3; re-enable the ruleset and provide a
 reviewer before recording G1. The helper remains ready for that switch.
 
 
+## 6. Wire the gate
+
 The generated workflow runs four jobs:
 
 | Job | Purpose |
@@ -164,6 +166,27 @@ The generated workflow runs four jobs:
 Requiring exactly `invariant-verdict` keeps the gate stable when individual
 jobs are renamed. Upstream missing/cancelled/skipped artifacts are gate
 failures; absence is never success.
+
+## Agent identity and review separation
+
+If an agent opens pull requests, give it a separate GitHub App identity. The
+human stays the only code owner and reviewer; the bot can push feature branches
+and open PRs but cannot approve its own work or merge into `main`. The complete
+clean-session procedure, including the App permissions, branch-protection
+allowlist, token minting and acceptance checks, is in
+[the agent identity handoff](agent-identity-handoff.md).
+
+The short version:
+
+- the bot is `<app-slug>[bot]`, with Contents/Pull requests write and
+  Administration/Metadata read;
+- `@gustavo-oo` remains the only code owner;
+- the ruleset requires one approval, code-owner review and `invariant-verdict`,
+  with `bypass_actors: []`;
+- classic branch protection restricts `main` pushes to the human;
+- the clean session uses **only** the App installation token, never a human
+  `gh` session;
+- the human approves and merges; the bot cannot do either.
 
 ## 7. The dependency-injection requirement
 

@@ -74,6 +74,11 @@ maintainer can merge without a second reviewer. The doctor therefore observes
 `protection: none` and reports **G3 (procedural)**; the baseline in this PR
 records **G3**. G3 is not a guarantee.
 
+The clean-session procedure for separating the agent's identity from the human
+reviewer — GitHub App permissions, ruleset activation, the `main` push
+allowlist, token minting and the acceptance checks — is in
+[the agent identity handoff](agent-identity-handoff.md).
+
 The G1 run `40731664293` and the G1 baseline were captured while the ruleset was
 active; they remain evidence, not the current class. To restore G1, re-enable
 the ruleset, provide a second reviewer (the ruleset requires one approval plus
