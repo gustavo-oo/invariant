@@ -59,11 +59,22 @@ function result(runtimeId: string, outcome: CheckResult["outcome"], message?: st
   return message === undefined ? { runtimeId, outcome } : { runtimeId, outcome, message };
 }
 
+/** The proof every enforced check needs in the roll-up tests. */
+function proofs(reg: Registry): Map<string, SabotageOutcome> {
+  const outcomes = new Map<string, SabotageOutcome>();
+  for (const rule of reg.rules) {
+    for (const check of rule.checks) {
+      outcomes.set(check.id, { status: "applied", classification: "assertion" });
+    }
+  }
+  return outcomes;
+}
+
 function compute(
   reg: Registry,
   checks: DiscoveredCheck[],
   results: CheckResult[] = [],
-  outcomes: Map<string, SabotageOutcome> = new Map(),
+  outcomes: Map<string, SabotageOutcome> = proofs(reg),
 ) {
   return computeVerdicts({ registry: reg, discovered: checks, results, outcomes });
 }
@@ -111,7 +122,7 @@ describe("computeVerdicts", () => {
       runtimeId: "rt-a",
       verdict: "pass",
       reason: "check.passed",
-      negativeControl: { status: "not-executed" },
+      negativeControl: { status: "applied", classification: "assertion" },
     });
     expect(verdicts.checks[1]).toMatchObject({ checkId: "sales.b", verdict: "flaky", reason: "check.flaky" });
 
@@ -124,7 +135,7 @@ describe("computeVerdicts", () => {
       verdict: "flaky",
       reason: "check.flaky",
       checkIds: ["sales.a", "sales.b"],
-      sabotageVerified: false,
+      sabotageVerified: true,
     });
   });
 
@@ -298,7 +309,7 @@ describe("computeVerdicts", () => {
     });
   });
 
-  it("marks sabotageVerified false while outcomes are not-executed", () => {
+  it("blocks green enforced checks whose outcomes are not proof", () => {
     const reg = registry([
       rule("SALES-001", ["sales.a", "sales.b"]),
       rule("SALES-002", ["sales.b"]),
@@ -314,13 +325,44 @@ describe("computeVerdicts", () => {
 
     const verdicts = compute(reg, checks, [result("rt-a", "pass"), result("rt-b", "pass")], outcomes);
 
-    expect(verdicts.rules.map((verdict) => verdict.verdict)).toEqual(["pass", "pass"]);
+    expect(verdicts.checks.map((check) => [check.verdict, check.reason])).toEqual([
+      ["blocked", "check.blocked"],
+      ["blocked", "check.blocked"],
+    ]);
+    expect(verdicts.rules.map((verdict) => verdict.verdict)).toEqual(["blocked", "blocked"]);
     expect(verdicts.rules.map((verdict) => verdict.sabotageVerified)).toEqual([false, false]);
     // R39: a check tagged with both rules is attributed to both.
     expect(verdicts.rules.map((verdict) => verdict.checkIds)).toEqual([
       ["sales.a", "sales.b"],
       ["sales.b"],
     ]);
+  });
+
+  it("blocks a single green check whose sabotage is a no-op", () => {
+    const reg = registry([rule("SALES-004", ["sales.a"])]);
+    const checks = [discovered("sales.a", ["SALES-004"])];
+    const outcomes = new Map<string, SabotageOutcome>([["sales.a", { status: "not-applied" }]]);
+
+    const verdicts = compute(reg, checks, [result("rt:sales.a", "pass")], outcomes);
+
+    expect(verdicts.checks[0]).toMatchObject({ checkId: "sales.a", verdict: "blocked", reason: "check.blocked" });
+    expect(verdicts.rules[0]).toMatchObject({
+      ruleId: "SALES-004",
+      verdict: "blocked",
+      reason: "check.blocked",
+      sabotageVerified: false,
+    });
+  });
+
+  it("leaves a draft rule green without proof (it does not gate)", () => {
+    const reg = registry([rule("SALES-005", ["sales.draft"], { status: "draft" })]);
+    const checks = [discovered("sales.draft", ["SALES-005"])];
+    const outcomes = new Map<string, SabotageOutcome>([["sales.draft", { status: "not-applied" }]]);
+
+    const verdicts = compute(reg, checks, [result("rt:sales.draft", "pass")], outcomes);
+
+    expect(verdicts.checks[0]?.verdict).toBe("pass");
+    expect(verdicts.rules[0]).toMatchObject({ status: "draft", verdict: "pass", sabotageVerified: false });
   });
 
   it("marks sabotageVerified true only when every attributed check is a proof", () => {

@@ -71,10 +71,29 @@ export function computeVerdicts(input: {
   const results = listOf<CheckResult>(input?.results);
   const outcomes = input?.outcomes;
 
-  const checks = buildCheckVerdicts(discovered, results, outcomes, declaredLayers(rules, flows));
+  const checks = buildCheckVerdicts(
+    discovered,
+    results,
+    outcomes,
+    declaredLayers(rules, flows),
+    enforcedCheckIds(rules),
+  );
   const ruleVerdicts = buildRuleVerdicts(rules, checks);
 
   return { checks, rules: ruleVerdicts, flows: buildFlowVerdicts(flows, checks, ruleVerdicts) };
+}
+
+/** Every check id declared by an `enforced` rule; only those require proof. */
+function enforcedCheckIds(rules: Rule[]): Set<string> {
+  const ids = new Set<string>();
+  for (const rule of rules) {
+    if (rule.status !== "enforced") continue;
+    for (const check of listOf<CheckDecl>(rule.checks)) {
+      const id = text(check.id);
+      if (id !== undefined) ids.add(id);
+    }
+  }
+  return ids;
 }
 
 /**
@@ -91,15 +110,20 @@ function buildCheckVerdicts(
   results: CheckResult[],
   outcomes: Map<string, SabotageOutcome> | undefined,
   layers: Map<string, CheckLayer>,
+  enforced: ReadonlySet<string>,
 ): CheckVerdict[] {
   const paired = pairResults(discovered, results);
 
   return discovered.map((check, index) => {
     const checkId = text(check.checkId) ?? "";
     const result = paired[index];
-    const verdict = verdictOf(result);
+    const base = verdictOf(result);
     const layer = layers.get(checkId);
     const message = typeof result?.message === "string" ? result.message : undefined;
+    const outcome = outcomes?.get(checkId) ?? { status: "not-executed" };
+    // A green check is only evidence when its sabotage proved it can fail. A
+    // red/not-run/flaky check keeps its own (worse) verdict.
+    const verdict = base === "pass" && enforced.has(checkId) && !isProof(outcome) ? "blocked" : base;
 
     return {
       checkId,
@@ -112,7 +136,7 @@ function buildCheckVerdicts(
       verdict,
       reason: checkReason(verdict),
       ...(message !== undefined ? { message } : {}),
-      negativeControl: outcomes?.get(checkId) ?? { status: "not-executed" },
+      negativeControl: outcome,
     };
   });
 }
