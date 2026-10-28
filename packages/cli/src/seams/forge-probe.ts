@@ -11,6 +11,8 @@
  * (`computeClass`) — absence of an observation is not evidence of protection.
  */
 import type { Config } from "../config/model.js";
+import { observeFromApi } from "../doctor/github.js";
+import { resolveRepo } from "../doctor/probe.js";
 
 /**
  * What the forge actually protects, as read from the API. The shape is the
@@ -36,11 +38,27 @@ export interface ForgeProbe {
   observe(root: string): Promise<DoctorObservation>;
 }
 
-/** Task 18 replaces only this body with the GitHub-backed probe. */
-export function createForgeProbe(_config: Config): ForgeProbe {
+/** Task 18 wires the GitHub REST observation; the seam stays the only entry point. */
+export function createForgeProbe(config: Config): ForgeProbe {
   return {
-    async observe(): Promise<DoctorObservation> {
-      return { available: false, reason: "forge probe is wired in a later task" };
+    async observe(root: string): Promise<DoctorObservation> {
+      const token = process.env[config.doctor.tokenEnv] ?? null;
+      if (token === null || token.trim() === "") {
+        return { available: false, reason: `no token for ${config.doctor.tokenEnv}` };
+      }
+      const repo = await resolveRepo(root);
+      if (repo === null) {
+        return {
+          available: false,
+          reason: "cannot determine the GitHub repository from GITHUB_REPOSITORY or origin",
+        };
+      }
+      return await observeFromApi(globalThis.fetch, {
+        owner: repo.owner,
+        name: repo.name,
+        token,
+        apiUrl: config.doctor.apiUrl,
+      });
     },
   };
 }

@@ -1,0 +1,9 @@
+{
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["~DEFAULT_BRANCH"] }
+  },
+  "rules": [{ "type": "merge_queue" }],
+  "bypass_actors": []
+}

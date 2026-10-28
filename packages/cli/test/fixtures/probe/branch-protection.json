@@ -1,0 +1,9 @@
+{
+  "required_status_checks": {
+    "checks": [{ "context": "invariant-verdict", "app_id": 15368 }]
+  },
+  "required_pull_request_reviews": {
+    "require_code_owner_reviews": true
+  },
+  "enforce_admins": { "enabled": true }
+}

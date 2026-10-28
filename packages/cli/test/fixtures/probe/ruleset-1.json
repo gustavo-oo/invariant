@@ -1,0 +1,24 @@
+{
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": { "include": ["~DEFAULT_BRANCH"] }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "required_status_checks": [
+          { "context": "invariant-verdict", "integration_id": 15368 }
+        ]
+      }
+    },
+    {
+      "type": "pull_request",
+      "parameters": { "require_code_owner_review": true }
+    }
+  ],
+  "bypass_actors": [
+    { "actor_id": null, "actor_type": "DeployKey", "bypass_mode": "always" }
+  ]
+}
