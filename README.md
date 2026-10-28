@@ -8,43 +8,43 @@ per-flow verdicts. It writes `invariant-report.json` and a PR comment, and exits
 `0`/`1`/`2`. It discovers, runs, maps, verifies and reports — it never owns your
 tests, your test config or your data.
 
-> **Scope of this delivery:** Phase 0 + Phase 1. The complete guarantee of spec
-> §7 does not exist until Phase 2; this plan delivers the registry, discovery,
-> execution, verdicts, reports, CI workflow, `doctor` and `init`.
+> **Scope of this delivery:** Phase 2, Part A. The negative control is executed:
+> every enforced check runs again in an isolated copy with its declared seam
+> sabotaged, and a rule is `proven` only when that run failed with an
+> `assertion`-classified failure. The guarantee is binding only at G1/G2; this
+> repository is honestly **G3 (procedural)**.
 
-## Guarantee status: what this delivery does **not** deliver
+## Guarantee status
 
-State this at the top of any announcement about this work, and repeat it in the
-PR comment the tool produces.
+The mechanism of spec §7 is implemented. `invariant negative` and `invariant
+verify` execute each declared sabotage in a disposable sandbox; the report
+carries `negative_control: "executed"` and `sabotage_verified` is true only when
+**every** check of the rule failed by assertion under its sabotage. A no-op, a
+harness error or a timeout is `blocked` and red — a false red, never a false
+green.
 
-**The complete guarantee of spec §7 does not exist until Phase 2. This plan
-delivers Phase 0 + Phase 1.**
-
-| Delivered here | Not delivered here (Phase 2) |
+| Delivered in Phase 2 | Not delivered here |
 |---|---|
-| Registry schema + validator; `enforced` requires owners, ≥1 check, and a declared `seam` negative control with a declared sabotage **on every check** (spec §5.1) | Running the sabotaged check and classifying its failure |
-| Discovery of tagged checks; adapter interface; TypeScript/Vitest reference adapter | `Adapter.applySabotage` / `Adapter.classifyFailure` |
-| `not-run` / `flaky` are never green (`not-run` is a positive-control rule; `flaky` comes from read reports) | Producing `blocked` verdicts from a missing/unappliable seam |
-| Verdict roll-up for rules and flows, exit codes, reports carrying the guarantee class | `invariant status`, `invariant-scope`, PR-comment polish, the agent skill (Phase 3) |
-| The **decision table** that decides whether a sabotage outcome counts as proof (`src/verdict/proof.ts`), unit-tested | Any *producer* of sabotage outcomes other than the test harness |
-| `invariant doctor`, baseline-based regression detection, class computation | — |
-| Implicit immutability diff (spec §8 stage 4) and fail-closed aggregation of upstream jobs | — |
+| `Adapter.applySabotage` + `classifyFailure`; isolated-copy runs with a sanitized env | `invariant-scope` |
+| Real `SabotageOutcome` producers; `blocked` verdicts | `invariant status` (draft backlog / missing-seam queue) |
+| `negative_control: "executed"`; `sabotage_verified` only with proof | Agent skill (`skill.distribution`) |
+| `no-op` / `harness` / `timeout` detection (false red, never false green) | Change-detection caching for the negative job |
+| JUnit XML fallback for existing reports | Multi-adapter and Playwright E2E (Part B) |
+| Scheduled full run and `--base ""` as “no diff” | — |
 
 Consequences that must not be papered over anywhere in code, docs, PR comments
 or commit messages:
 
-1. The report carries `guarantee.negative_control: "declared-only"` and every
-   rule carries `sabotage_verified: false`. **No output may say a rule is
-   proven, verified-able-to-fail, or guaranteed.** A rule is at most *checked
-   and green*.
-2. The PR comment prints a banner saying the full guarantee is not in force in
-   this delivery.
-3. `invariant negative` validates *declarations* (`@seam-alias` present, sabotage
-   file exists) and prints the not-executed notice. It must not report the
-   negative control as executed or pass.
-4. Phase 2 is a separate plan. It adds an implementation of `applySabotage` +
-   `classifyFailure` and a real producer for `SabotageOutcome`; it does not
-   change the registry schema, the verdict vocabulary or the report shape.
+1. A rule is *proven* only when every check failed under its declared sabotage
+   with an `assertion`-classified failure. Every other outcome is `blocked`.
+2. G3 is procedural. An executed negative control in a G3 run is evidence, not a
+   guarantee; the class and the below-G1 warning stay in the report and the PR
+   comment.
+3. The sandbox excludes known secrets and blocks non-loopback network
+   best-effort; OS-level isolation is not claimed. The seam module is replaced
+   wholesale, so its relative imports resolve from the target's directory.
+4. `invariant-scope`, `invariant status`, the agent skill and Playwright E2E are
+   later work, not weaker versions of this guarantee.
 
 ## How the gate works
 
@@ -56,8 +56,8 @@ or commit messages:
    integrity failure, never a silent match.
 3. **Run the stages** — `invariant verify` loads and validates the registry,
    discovers checks, reconciles integrity, checks immutability, executes (or
-   reads a report), records the declared-only negative control, rolls the
-   verdict up to rules and flows, and publishes the report and comment.
+   reads a report), **runs the declared sabotage in an isolated copy**, rolls
+   the verdict up to rules and flows, and publishes the report and comment.
 4. **The gate** is red (`1`) when an enforced rule or a flow is not green. An
    invalid registry, broken discovery/integrity, an unreadable event/diff or a
    run that cannot execute is a gate failure (`2`), never a product verdict.
@@ -68,21 +68,22 @@ verdict → flow verdict → exit code + report + comment`.
 
 ## Dependency injection is the seam
 
-The Phase 2 negative control only works through **injected seams**. Rule-bearing
-behaviour must receive its collaborators by injection: a composition root at the
+The negative control works through **injected seams**. Rule-bearing behaviour
+must receive its collaborators by injection: a composition root at the
 application edge, module boundaries for pure logic, and the ability to alias a
 module for the duration of a sabotaged run. If a rule cannot be sabotaged yet,
 it stays `draft`; it is never described as enforced, proven or green.
 
 Every declared sabotage names its seam with `@seam-alias <repo-relative path>`.
-This delivery validates the declaration; it does not apply it.
+The sabotaged run copies the repository, replaces that module's bytes with the
+sabotage file, and runs the check there. It does not patch production code.
 
 ## CLI
 
 ```
 invariant validate  [--root <dir>] [--base <ref>] [--event <path>] [--json] [--out <file>]
 invariant run       [--root <dir>] [--adapter <id>] [--reports <file>]... [--json] [--out <file>]
-invariant negative  [--root <dir>] [--json] [--out <file>]
+invariant negative  [--root <dir>] [--adapter <id>] [--json] [--out <file>]
 invariant verdict   --inputs <dir> [--job-status <job>=<result>]... [--doctor-result <file>]
                     [--repo <owner/name>] [--run-id <id>] [--baseline <file>]
                     [--root <dir>] [--out <file>] [--comment <file>] [--base <ref>] [--head <sha>]
@@ -123,10 +124,20 @@ The public dogfood repository is <https://github.com/gustavo-oo/invariant>. Its
 [deployment record](docs/deployment.md) includes the imported protection
 ruleset, the red-PR evidence and the G1 helper. The ruleset is currently
 **disabled** so a solo maintainer can merge without a second reviewer; the
-honest class is **G3 (procedural)**. The
-[agent identity handoff](docs/agent-identity-handoff.md) documents how to move
-the agent to a separate GitHub App identity, restore the reviewer gate and
-record G1.
+honest class is **G3 (procedural)**.
+
+The executed negative control is evidenced locally:
+
+```text
+npm test            369/369
+npm run dogfood     5 rules green, 0 not green, class G3, negative control executed
+invariant negative  5/5 checks proven able to fail
+```
+
+G3 is not a guarantee; a proven rule in a G3 run is evidence, not a binding
+gate. The [agent identity handoff](docs/agent-identity-handoff.md) documents
+how to move the agent to a separate GitHub App identity, restore the reviewer
+gate and record G1.
 
 ## Development
 

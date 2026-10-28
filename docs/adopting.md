@@ -4,11 +4,11 @@ This guide takes a repository from no gate to `invariant-verdict` requiring a
 green rule check on every pull request. It assumes Node ≥20 and a GitHub
 repository.
 
-> **What you get today:** Phase 0 + Phase 1. The registry, tagged checks,
-> execution, verdicts, reports and the CI workflow are real. The sabotaged run
-> that proves a rule can fail is Phase 2; until then the report says
-> `negative_control: "declared-only"` and every rule says
-> `sabotage_verified: false`. Never describe a rule as proven or guaranteed.
+> **What you get today:** Phase 2, Part A. The negative control is executed in
+> an isolated copy: a rule is `proven` only when every one of its checks failed
+> under its declared sabotage with an `assertion`-classified failure. A no-op,
+> harness error or timeout is `blocked` and red. The guarantee is binding only
+> at G1/G2; G3 is procedural and never described as a guarantee.
 
 ## 1. Install and bootstrap
 
@@ -191,12 +191,18 @@ The generated workflow runs four jobs:
 |---|---|
 | `invariant-registry` | schema, links, integrity and the immutability diff |
 | `invariant-checks` | discover and execute the tagged checks (or read reports) |
-| `invariant-negative` | validate the declared sabotage files (`@seam-alias`, target) |
+| `invariant-negative` | execute the sabotaged runs in isolated copies; a non-proof is a product red |
 | `invariant-verdict` | the single required check; aggregates the three artifacts and the class |
 
 Requiring exactly `invariant-verdict` keeps the gate stable when individual
 jobs are renamed. Upstream missing/cancelled/skipped artifacts are gate
 failures; absence is never success.
+
+The workflow also runs on a daily `schedule` and on `workflow_dispatch`. A
+scheduled run on `main` re-executes every check and every declared sabotage, so
+drift in a seam, a dependency or the test harness is caught even when no PR is
+open. `--base ""` is treated as “no diff”: the scheduled run does not claim to
+have checked immutability.
 
 ## Agent identity and review separation
 
@@ -233,9 +239,24 @@ your rule-bearing behaviour to receive its collaborators by injection:
 If a rule cannot be sabotaged yet, keep it `draft` and record it as work. A
 declared sabotage without a seam is not proof; the registry validator and
 `invariant negative` reject an incomplete declaration, and the rule is never
-reported as proven. Phase 2 adds the isolated sabotaged run and the
-`assertion`/`harness`/`timeout` classification; until then, the honest status is
-**checked and green**, never guaranteed.
+reported as proven.
+
+The executed run copies the repository, replaces the `@seam-alias` module's
+bytes with the sabotage file, and runs the check there. Three rules follow from
+that mechanism:
+
+- the seam module should be small and have one collaborator; the sabotage
+  replaces it wholesale, so unrelated exports disappear;
+- the sabotage's relative imports resolve from the target's directory, not from
+  `.invariant/sabotages/`; use no relative imports or only paths that resolve
+  from the target;
+- the sabotage must make the check fail **by assertion**. A custom thrown
+  `Error` is classified `harness`, which is not proof.
+
+The sandbox excludes `.env*`, key/certificate files and package-manager config,
+points `HOME` at itself and blocks non-loopback network best-effort. A check
+that stays green under sabotage is `not-applied` and the rule is `blocked`; fix
+the seam, not the sabotage.
 
 ## 8. Verify the installation
 

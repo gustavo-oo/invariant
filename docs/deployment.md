@@ -67,6 +67,28 @@ The downloaded artifacts pin the cause:
 So the product rule failed, the gate went red, and the required check was the
 one that failed — not an infrastructure-only failure.
 
+## Phase 2 evidence — executed negative control
+
+On 2026-10-28, on branch `phase-2`, the negative control is executed end to end:
+
+```text
+npm test            369/369 tests
+npm run dogfood     5 rules green, 0 not green, class G3, negative control executed
+invariant negative  5/5 checks proven able to fail
+```
+
+The dogfood `invariant-report.json` carries
+`guarantee.negative_control: "executed"` and every SELF rule has
+`sabotage_verified: true`. The `negative-result.json` artifact records
+`declared: 5`, `executed: true`, and one
+`{ "status": "applied", "classification": "assertion" }` per check.
+
+A real Phase 2 PR with a **no-op** sabotage (red `blocked`) and a broken
+sabotage (red `harness`) is still pending; the Phase 1 red PR above proves the
+aggregate check, not the executed control. The class remains **G3**; an executed
+negative control in G3 is evidence, not a binding guarantee. Binding requires
+G1/G2.
+
 ## Guarantee class
 
 The `invariant` ruleset (id `26057771`) is currently **disabled** so a solo
