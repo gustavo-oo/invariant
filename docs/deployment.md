@@ -72,7 +72,7 @@ one that failed — not an infrastructure-only failure.
 On 2026-10-28, on branch `phase-2`, the negative control is executed end to end:
 
 ```text
-npm test            369/369 tests
+npm test            389/389 tests
 npm run dogfood     5 rules green, 0 not green, class G3, negative control executed
 invariant negative  5/5 checks proven able to fail
 ```
@@ -88,6 +88,11 @@ sabotage (red `harness`) is still pending; the Phase 1 red PR above proves the
 aggregate check, not the executed control. The class remains **G3**; an executed
 negative control in G3 is evidence, not a binding guarantee. Binding requires
 G1/G2.
+
+Part B is covered by the `vue-fastify` fixture: a root Vitest config with
+client/server projects, a server seam, a client seam and a Playwright E2E flow
+check in one gate. The plugin suite uses a recorded Playwright JSON report; a
+real browser run needs `npx playwright install` in the adopter's CI.
 
 ## Guarantee class
 

@@ -8,11 +8,12 @@ per-flow verdicts. It writes `invariant-report.json` and a PR comment, and exits
 `0`/`1`/`2`. It discovers, runs, maps, verifies and reports — it never owns your
 tests, your test config or your data.
 
-> **Scope of this delivery:** Phase 2, Part A. The negative control is executed:
-> every enforced check runs again in an isolated copy with its declared seam
-> sabotaged, and a rule is `proven` only when that run failed with an
-> `assertion`-classified failure. The guarantee is binding only at G1/G2; this
-> repository is honestly **G3 (procedural)**.
+> **Scope of this delivery:** Phase 2, Parts A + B. The negative control is
+> executed: every enforced check runs again in an isolated copy with its
+> declared seam sabotaged, and a rule is `proven` only when that run failed with
+> an `assertion`-classified failure. Multiple adapters can share one gate:
+> Vitest for client/server and Playwright for E2E. The guarantee is binding only
+> at G1/G2; this repository is honestly **G3 (procedural)**.
 
 ## Guarantee status
 
@@ -29,7 +30,8 @@ green.
 | Real `SabotageOutcome` producers; `blocked` verdicts | `invariant status` (draft backlog / missing-seam queue) |
 | `negative_control: "executed"`; `sabotage_verified` only with proof | Agent skill (`skill.distribution`) |
 | `no-op` / `harness` / `timeout` detection (false red, never false green) | Change-detection caching for the negative job |
-| JUnit XML fallback for existing reports | Multi-adapter and Playwright E2E (Part B) |
+| JUnit XML fallback for existing reports | — |
+| Composite `adapters: [vitest, playwright]`; Playwright E2E | — |
 | Scheduled full run and `--base ""` as “no diff” | — |
 
 Consequences that must not be papered over anywhere in code, docs, PR comments
@@ -43,8 +45,8 @@ or commit messages:
 3. The sandbox excludes known secrets and blocks non-loopback network
    best-effort; OS-level isolation is not claimed. The seam module is replaced
    wholesale, so its relative imports resolve from the target's directory.
-4. `invariant-scope`, `invariant status`, the agent skill and Playwright E2E are
-   later work, not weaker versions of this guarantee.
+4. `invariant-scope`, `invariant status` and the agent skill are later work,
+   not weaker versions of this guarantee.
 
 ## How the gate works
 
@@ -82,17 +84,20 @@ sabotage file, and runs the check there. It does not patch production code.
 
 ```
 invariant validate  [--root <dir>] [--base <ref>] [--event <path>] [--json] [--out <file>]
-invariant run       [--root <dir>] [--adapter <id>] [--reports <file>]... [--json] [--out <file>]
-invariant negative  [--root <dir>] [--adapter <id>] [--json] [--out <file>]
+invariant run       [--root <dir>] [--adapter <id>]... [--reports <file>]... [--json] [--out <file>]
+invariant negative  [--root <dir>] [--adapter <id>]... [--json] [--out <file>]
 invariant verdict   --inputs <dir> [--job-status <job>=<result>]... [--doctor-result <file>]
                     [--repo <owner/name>] [--run-id <id>] [--baseline <file>]
                     [--root <dir>] [--out <file>] [--comment <file>] [--base <ref>] [--head <sha>]
-invariant verify    [--root <dir>] [--adapter <id>] [--base <ref>] [--head <sha>] [--event <path>]
+invariant verify    [--root <dir>] [--adapter <id>]... [--base <ref>] [--head <sha>] [--event <path>]
                     [--reports <file>]... [--doctor-result <file>] [--repo <owner/name>]
                     [--run-id <id>] [--baseline <file>] [--out <file>] [--comment <file>] [--json]
 invariant doctor    [--root <dir>] [--record] [--strict] [--check <name>] [--json] [--out <file>]
 invariant init      [dir] --owner <@handle> [--adapter <id>] [--cli-setup <cmd>] [--invariant-cmd <cmd>]
 ```
+
+Repeat `--adapter` to run a mixed gate. `--reports <adapter>=<file>` routes a
+report to one adapter; an unprefixed path is offered to every adapter.
 
 ## Exit codes
 
@@ -129,7 +134,7 @@ honest class is **G3 (procedural)**.
 The executed negative control is evidenced locally:
 
 ```text
-npm test            369/369
+npm test            389/389
 npm run dogfood     5 rules green, 0 not green, class G3, negative control executed
 invariant negative  5/5 checks proven able to fail
 ```

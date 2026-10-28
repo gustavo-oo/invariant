@@ -4,11 +4,13 @@ This guide takes a repository from no gate to `invariant-verdict` requiring a
 green rule check on every pull request. It assumes Node ≥20 and a GitHub
 repository.
 
-> **What you get today:** Phase 2, Part A. The negative control is executed in
-> an isolated copy: a rule is `proven` only when every one of its checks failed
-> under its declared sabotage with an `assertion`-classified failure. A no-op,
-> harness error or timeout is `blocked` and red. The guarantee is binding only
-> at G1/G2; G3 is procedural and never described as a guarantee.
+> **What you get today:** Phase 2, Parts A + B. The negative control is executed
+> in an isolated copy: a rule is `proven` only when every one of its checks
+> failed under its declared sabotage with an `assertion`-classified failure. A
+> no-op, harness error or timeout is `blocked` and red. Multiple adapters can
+> share one gate (`adapters: [vitest, playwright]`), including Playwright E2E.
+> The guarantee is binding only at G1/G2; G3 is procedural and never described
+> as a guarantee.
 
 ## 1. Install and bootstrap
 
@@ -258,7 +260,74 @@ points `HOME` at itself and blocks non-loopback network best-effort. A check
 that stays green under sabotage is `not-applied` and the rule is `blocked`; fix
 the seam, not the sabotage.
 
-## 8. Verify the installation
+## 8. Vue 3 + Fastify: one gate, two adapters
+
+A typical repository has Vue component tests, Fastify `app.inject()` tests and
+Playwright browser tests. Keep one root Vitest config with projects so one
+`invariant run` covers client and server:
+
+```ts
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+import vue from "@vitejs/plugin-vue";
+
+export default defineConfig({
+  test: {
+    projects: [
+      {
+        plugins: [vue()],
+        test: { name: "client", environment: "jsdom", include: ["client/**/*.spec.ts"] },
+      },
+      { test: { name: "server", environment: "node", include: ["server/**/*.spec.ts"] } },
+    ],
+  },
+});
+```
+
+Configure both adapters and keep `vitest` at the repository root:
+
+```yaml
+# .invariant/config.yaml
+adapters: [vitest, playwright]
+```
+
+The Playwright adapter discovers a spec only when it imports `@playwright/test`;
+the Vitest adapter skips those files. It understands `test.describe` and treats
+`test.beforeEach`/`afterEach`/`use`/`step` as hooks, not tests. A flow-level E2E
+check is declared in `flows[].checks` with `layer: e2e` and carries no negative
+control (it proves the sequence, while the governing rules carry the seam
+proofs).
+
+```ts
+// e2e/checkout.spec.ts
+import { expect, test } from "@playwright/test";
+
+test.describe("checkout", () => {
+  // @check checkout.completes
+  // @flow checkout
+  test("completes", async ({ page }) => {
+    await page.goto("/checkout");
+    await expect(page.getByText("Order accepted")).toBeVisible();
+  });
+});
+```
+
+Run the real browser in CI by installing it with the CLI setup:
+
+```bash
+npx invariant init . --owner @you \
+  --cli-setup "npm install --no-save invariant@<version> && npx playwright install --with-deps chromium"
+```
+
+The Playwright config's `webServer` starts the Fastify app in the sandbox copy,
+so the sabotaged seam is what the server loads. Loopback is allowed by the
+no-network preload; the browser cache is not a secret and can be exposed with
+`PLAYWRIGHT_BROWSERS_PATH`. If CI already produced a Playwright JSON report, skip
+the browser run with
+`--reports playwright=path/to/report.json`. The plugin's own test suite uses a
+recorded report so it never downloads a browser.
+
+## 9. Verify the installation
 
 ```bash
 npx invariant validate

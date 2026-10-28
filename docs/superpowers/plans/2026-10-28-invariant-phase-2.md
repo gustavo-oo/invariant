@@ -33,7 +33,7 @@
 
 ## Execution status (branch `phase-2`)
 
-Tasks 1–9 and 11–14 are implemented and committed on `phase-2`. `npm test` is 376/376; `npm run dogfood` reports five green rules with `negative control: executed`; `invariant negative` reports 5/5 checks proven able to fail. Task 10's corpus and goldens are updated and `no-op-sabotage` covers the `not-applied` case; the separate fixture was not added. Part B (multi-adapter, Playwright E2E, Vue 3 + Fastify) remains.
+Tasks 1–17 are implemented and committed on `phase-2`. `npm test` is 389/389; `npm run dogfood` reports five green rules with `negative control: executed`; `invariant negative` reports 5/5 checks proven able to fail; the `vue-fastify` fixture runs Vitest client/server and a recorded Playwright E2E check in one gate. Task 10's corpus and goldens are updated and `no-op-sabotage` covers the `not-applied` case; the separate fixture was not added. Task 18's real red-PR evidence is still pending.
 
 ## What changes on every surface
 
