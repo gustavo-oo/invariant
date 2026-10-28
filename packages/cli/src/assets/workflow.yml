@@ -1,0 +1,171 @@
+# invariant — CI workflow (generated from packages/cli/src/assets/workflow.yml).
+#
+# PEND-5: when this workflow is embedded through `workflow_call`, GitHub reports
+# the check as `<caller job> / <called job>`. Record that exact context in
+# .invariant/protection-baseline.json (`expected.required_context`) so `doctor`
+# verifies the name branch protection actually requires.
+#
+# Protected paths: __PROTECTED_PATHS__
+# invariant version: __INVARIANT_VERSION__
+
+name: invariant
+
+on:
+  pull_request: {}
+  merge_group: {}
+  workflow_call:
+    inputs:
+      reports:
+        description: Space-separated report paths to read before executing (run --reports).
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  invariant-registry:
+    name: invariant-registry
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Prepare the invariant CLI
+        run: __CLI_SETUP__
+      - name: Validate the registry and the immutability diff
+        run: |
+          mkdir -p invariant-inputs/invariant-registry
+          __INVARIANT_CMD__ validate --json \
+            --out invariant-inputs/invariant-registry/registry-result.json \
+            --base "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}" \
+            --event "$GITHUB_EVENT_PATH"
+      - name: Upload the registry result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invariant-registry
+          path: invariant-inputs/
+          if-no-files-found: warn
+
+  invariant-checks:
+    name: invariant-checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Prepare the invariant CLI
+        run: __CLI_SETUP__
+      - name: Execute the checks
+        run: |
+          mkdir -p invariant-inputs/invariant-checks
+          __INVARIANT_CMD__ run --json \
+            --out invariant-inputs/invariant-checks/checks-result.json \
+            ${{ inputs.reports && format('--reports {0}', inputs.reports) || '' }}
+      - name: Upload the checks result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invariant-checks
+          path: invariant-inputs/
+          if-no-files-found: warn
+
+  invariant-negative:
+    name: invariant-negative
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Prepare the invariant CLI
+        run: __CLI_SETUP__
+      - name: Validate the declared sabotage
+        run: |
+          mkdir -p invariant-inputs/invariant-negative
+          __INVARIANT_CMD__ negative --json \
+            --out invariant-inputs/invariant-negative/negative-result.json
+      - name: Upload the negative result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invariant-negative
+          path: invariant-inputs/
+          if-no-files-found: warn
+
+  invariant-verdict:
+    name: invariant-verdict
+    runs-on: ubuntu-latest
+    needs: [invariant-registry, invariant-checks, invariant-negative]
+    if: always()
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Prepare the invariant CLI
+        run: __CLI_SETUP__
+      - name: Download the three worker artifacts
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          path: ./invariant-inputs
+          pattern: invariant-*
+          merge-multiple: true
+      # NOTE: INVARIANT_DOCTOR_TOKEN is an optional fine-grained PAT with
+      # Administration: read; GITHUB_TOKEN cannot read rulesets or branch
+      # protection. Its absence lowers the class honestly instead of failing the
+      # workflow, so this step must be able to run without the secret.
+      - name: Observe branch protection
+        continue-on-error: true
+        env:
+          INVARIANT_DOCTOR_TOKEN: ${{ secrets.INVARIANT_DOCTOR_TOKEN }}
+        run: |
+          __INVARIANT_CMD__ doctor --json --out invariant-doctor.json \
+            --repo "${{ github.repository }}" --run-id "${{ github.run_id }}"
+      - name: Aggregate the verdict
+        run: |
+          __INVARIANT_CMD__ verdict --inputs ./invariant-inputs \
+            --job-status invariant-registry=${{ needs.invariant-registry.result }} \
+            --job-status invariant-checks=${{ needs.invariant-checks.result }} \
+            --job-status invariant-negative=${{ needs.invariant-negative.result }} \
+            --baseline .invariant/protection-baseline.json \
+            --doctor-result invariant-doctor.json \
+            --repo "${{ github.repository }}" --run-id "${{ github.run_id }}" \
+            --base "${{ github.event.pull_request.base.sha || '' }}" \
+            --head "${{ github.sha }}"
+      - name: Upload the report and the doctor result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invariant-report
+          path: |
+            invariant-report.json
+            invariant-doctor.json
+          if-no-files-found: warn
+      - name: Comment on the pull request
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file invariant-comment.md
