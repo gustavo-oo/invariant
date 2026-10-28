@@ -114,6 +114,17 @@ A missing observation, a missing required check, a weak or unpinned check, a
 missing code-owner rule or a growing bypass list lowers the class; it is never
 silently ignored. Record the observed environment with
 `invariant doctor --record`; `verdict` gates a regression against that baseline.
+For the optional step that raises the class from G3 to G1, see
+[the adoption guide](docs/adopting.md#optional-raise-the-class-to-g1).
+
+## Live instance
+
+The public dogfood repository is <https://github.com/gustavo-oo/invariant>. Its
+[deployment record](docs/deployment.md) includes the imported protection
+ruleset, the red-PR evidence and the G1 helper. The ruleset is currently
+**disabled** so a solo maintainer can merge without a second reviewer; the
+honest class is **G3 (procedural)**. The record explains the G1 evidence and how
+to restore it.
 
 ## Development
 
