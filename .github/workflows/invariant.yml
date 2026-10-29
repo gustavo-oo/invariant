@@ -147,9 +147,12 @@ jobs:
       # needs Administration: read + Metadata: read. Without its two secrets the
       # token step is skipped and the doctor honestly reports observation:
       # unavailable; the class decision stays in `verdict`, never in a workflow
-      # ignore.
+      # ignore. A secret that is present but cannot mint (a malformed app id, a
+      # rotated key) is the same observation unavailable: the step is allowed to
+      # fail, so the verdict still runs and the gate stays red for its own reason.
       - name: Mint the GitHub App token
         id: invariant-app-token
+        continue-on-error: true
         if: ${{ env.INVARIANT_APP_ID != '' && env.INVARIANT_APP_PRIVATE_KEY != '' }}
         uses: actions/create-github-app-token@v1
         with:
