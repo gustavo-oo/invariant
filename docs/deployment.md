@@ -83,11 +83,98 @@ The dogfood `invariant-report.json` carries
 `declared: 5`, `executed: true`, and one
 `{ "status": "applied", "classification": "assertion" }` per check.
 
-A real Phase 2 PR with a **no-op** sabotage (red `blocked`) and a broken
-sabotage (red `harness`) is still pending; the Phase 1 red PR above proves the
-aggregate check, not the executed control. The class remains **G3**; an executed
-negative control in G3 is evidence, not a binding guarantee. Binding requires
-G1/G2.
+## Phase 2 evidence — red PRs from the executed control
+
+Both evidence PRs were opened from `phase-2` against `main` and carried the
+`invariant:rule-change` label, because `phase-2` also changes `rules/` and
+`.invariant/`. Each was closed **unmerged** and its branch deleted after the run
+was recorded.
+
+### Red PR 1 — a no-op sabotage is not proof
+
+Demo PR: <https://github.com/gustavo-oo/invariant/pull/3> (closed, unmerged,
+branch deleted). Run:
+<https://github.com/gustavo-oo/invariant/actions/runs/40796114047>; verdict job:
+<https://github.com/gustavo-oo/invariant/actions/runs/40796114047/job/123193086915>.
+
+`.invariant/sabotages/self/check-runner.ts` was replaced with a runner that
+reports every check as `not-run`:
+
+```diff
+-      checks.map((check) => ({ runtimeId: check.runtimeId, outcome: "pass" })),
++      checks.map((check) => ({
++        runtimeId: check.runtimeId,
++        outcome: "not-run",
++        frameworkId: check.frameworkId,
++      })),
+```
+
+SELF-001's check already expects `not-run` to be a failure, so the check stayed
+green under sabotage. The control recorded `{ "status": "not-applied" }` for
+`self.not-run-fails`:
+
+| Job | Result |
+|---|---|
+| `invariant-registry` | success |
+| `invariant-checks` | success (all 389 tests green; nothing was red about the product) |
+| `invariant-negative` | **failure** (4/5 proven, `negative.sabotage_not_applied`) |
+| `invariant-verdict` | **failure** (product red, exit 1) |
+
+The downloaded `invariant-report.json` has `exit_code: 1`,
+`guarantee.negative_control: "executed"`, `guarantee.class: "G3"`,
+`SELF-001: blocked`, `self.not-run-fails: blocked`, and
+`sabotage_verified: false` for SELF-001 (true for the other four rules). The PR
+comment marked SELF-001 **checked**, not proven, and ends with "No guarantee is
+claimed by this run."
+
+### Red PR 2 — a broken sabotage is `harness`, never proof
+
+Demo PR: <https://github.com/gustavo-oo/invariant/pull/4> (closed, unmerged,
+branch deleted). Run:
+<https://github.com/gustavo-oo/invariant/actions/runs/40796434783>; verdict job:
+<https://github.com/gustavo-oo/invariant/actions/runs/40796434783/job/123194096463>.
+
+The same sabotage file was left as invalid TypeScript:
+
+```ts
+// @seam-alias packages/cli/src/seams/check-runner.ts
+export function createCheckRunner() {
+  return {
+    run: async (checks) => checks.map((check) => ({ runtimeId: check.runtimeId, outcome: "pass" })
+```
+
+The sandbox installs those bytes over the seam and the check cannot load. The
+outcome is `{ "status": "applied", "classification": "harness" }` with
+`negative.sabotage_harness` ("failed with a harness error under sabotage; that
+is not proof"). Jobs: `invariant-registry` success, `invariant-checks` success,
+`invariant-negative` **failure** (4/5), `invariant-verdict` **failure** (product
+red, exit 1). The report has `SELF-001: blocked`, `sabotage_verified: false`,
+`negative_control: "executed"`, class G3; the PR comment reads
+`SELF-001 / self.not-run-fails — applied (harness)`.
+
+The class remains **G3** in both runs. An executed negative control in G3 is
+evidence, not a binding guarantee. Binding requires G1/G2.
+
+### Workflow finding: a failed token mint must not skip the verdict
+
+The first no-op run
+(<https://github.com/gustavo-oo/invariant/actions/runs/40795425726>) never
+reached the verdict: "Mint the GitHub App token" failed with
+`'Issuer' claim ('iss') must be an Integer`, and GitHub skips the following
+steps without `if:` after a failure, so "Aggregate the verdict" never ran. The
+job was red for a credential, not for the product.
+
+Commit `3cb4644` sets `continue-on-error: true` on the mint step (the same
+treatment "Observe branch protection" already had). A token that cannot be
+minted is an unavailable observation: `doctor` reports `observation:
+unavailable`, the class stays G3, and `verdict` still runs and fails for its own
+reason. The class decision remains in `verdict`; no gate check was weakened.
+
+The `INVARIANT_APP_ID` secret still produces an invalid JWT issuer. Reset it to
+the App id (`5514312`, no whitespace or quotes); until then every run reports
+the observation as unavailable and stays G3.
+
+### Part B — composite adapters
 
 Part B is covered by the `vue-fastify` fixture: a root Vitest config with
 client/server projects, a server seam, a client seam and a Playwright E2E flow
